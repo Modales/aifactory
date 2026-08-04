@@ -1,10 +1,25 @@
 import { useEffect, useRef } from 'react'
 import type { ExerciseDef } from '@/lib/simulation'
+import { MIN_POSE_VISIBILITY } from '@/lib/pose/config'
+import { POSE_CONNECTIONS } from '@/lib/pose/connections'
+import { landmarkDisplayPoint, objectFitRect, type Size } from '@/lib/pose/geometry'
+import type { DetectedPose } from '@/lib/pose/types'
 
 interface PoseCanvasProps {
   exercise: ExerciseDef | null
   severity: 'good' | 'warn' | 'crit'
   active: boolean
+  mode?: 'synthetic' | 'landmarks'
+  pose?: DetectedPose | null
+  videoSize?: Size | null
+  mirrored?: boolean
+}
+
+interface LandmarkDrawingState {
+  active: boolean
+  mirrored: boolean
+  pose: DetectedPose | null
+  videoSize: Size | null
 }
 
 const COLORS = {
@@ -13,160 +28,247 @@ const COLORS = {
   crit: '#DC2626',
 }
 
-/**
- * Stylized animated pose-estimation overlay. Stands in for the real
- * pose model output (keypoints + joint angles) while the backend is built.
- */
-export default function PoseCanvas({ exercise, severity, active }: PoseCanvasProps) {
+function prepareCanvas(canvas: HTMLCanvasElement): CanvasRenderingContext2D | null {
+  const width = canvas.clientWidth
+  const height = canvas.clientHeight
+  const dpr = Math.max(1, window.devicePixelRatio || 1)
+  const backingWidth = Math.round(width * dpr)
+  const backingHeight = Math.round(height * dpr)
+
+  if (canvas.width !== backingWidth || canvas.height !== backingHeight) {
+    canvas.width = backingWidth
+    canvas.height = backingHeight
+  }
+
+  const context = canvas.getContext('2d')
+  context?.setTransform(dpr, 0, 0, dpr, 0, 0)
+  return context
+}
+
+function isVisible(visibility: number | undefined): boolean {
+  return visibility === undefined || visibility >= MIN_POSE_VISIBILITY
+}
+
+function drawLandmarks(canvas: HTMLCanvasElement, state: LandmarkDrawingState): void {
+  const context = prepareCanvas(canvas)
+  if (!context) return
+
+  const container = { width: canvas.clientWidth, height: canvas.clientHeight }
+  context.clearRect(0, 0, container.width, container.height)
+  if (!state.active || !state.pose || !state.videoSize) return
+
+  const displayRect = objectFitRect(container, state.videoSize, 'cover')
+  if (!displayRect) return
+
+  const landmarks = state.pose.landmarks
+  context.lineCap = 'round'
+  context.lineJoin = 'round'
+  context.strokeStyle = '#FF4D00'
+  context.lineWidth = 3
+  context.globalAlpha = 0.9
+
+  for (const [startIndex, endIndex] of POSE_CONNECTIONS) {
+    const start = landmarks[startIndex]
+    const end = landmarks[endIndex]
+    if (!start || !end || !isVisible(start.visibility) || !isVisible(end.visibility)) continue
+    const a = landmarkDisplayPoint(start, displayRect, state.mirrored)
+    const b = landmarkDisplayPoint(end, displayRect, state.mirrored)
+    context.beginPath()
+    context.moveTo(a.x, a.y)
+    context.lineTo(b.x, b.y)
+    context.stroke()
+  }
+
+  context.globalAlpha = 1
+  for (const landmark of landmarks) {
+    if (!isVisible(landmark.visibility)) continue
+    const point = landmarkDisplayPoint(landmark, displayRect, state.mirrored)
+    context.beginPath()
+    context.arc(point.x, point.y, 4, 0, Math.PI * 2)
+    context.fillStyle = '#14110E'
+    context.fill()
+    context.lineWidth = 2
+    context.strokeStyle = '#FF4D00'
+    context.stroke()
+  }
+}
+
+function LandmarkCanvas({
+  active,
+  mirrored,
+  pose,
+  videoSize,
+}: Pick<PoseCanvasProps, 'active' | 'mirrored' | 'pose' | 'videoSize'>) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const stateRef = useRef({ exercise, severity, active })
-  stateRef.current = { exercise, severity, active }
+  const drawingRef = useRef<LandmarkDrawingState>({
+    active,
+    mirrored: mirrored ?? false,
+    pose: pose ?? null,
+    videoSize: videoSize ?? null,
+  })
+
+  useEffect(() => {
+    drawingRef.current = {
+      active,
+      mirrored: mirrored ?? false,
+      pose: pose ?? null,
+      videoSize: videoSize ?? null,
+    }
+    const canvas = canvasRef.current
+    if (canvas) drawLandmarks(canvas, drawingRef.current)
+  }, [active, mirrored, pose, videoSize])
 
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
+    const redraw = () => drawLandmarks(canvas, drawingRef.current)
+    redraw()
+    const observer = new ResizeObserver(redraw)
+    if (canvas.parentElement) observer.observe(canvas.parentElement)
+    return () => observer.disconnect()
+  }, [])
 
-    let raf = 0
-    const resize = () => {
-      const parent = canvas.parentElement
-      if (!parent) return
-      canvas.width = parent.clientWidth
-      canvas.height = parent.clientHeight
-    }
-    resize()
-    const ro = new ResizeObserver(resize)
-    if (canvas.parentElement) ro.observe(canvas.parentElement)
+  return (
+    <canvas
+      ref={canvasRef}
+      className="pointer-events-none absolute inset-0 z-[1] h-full w-full"
+      aria-hidden="true"
+    />
+  )
+}
 
+function SyntheticPoseCanvas({
+  exercise,
+  severity,
+  active,
+}: Pick<PoseCanvasProps, 'exercise' | 'severity' | 'active'>) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    let animationFrame = 0
     const start = performance.now()
 
+    const resize = () => {
+      prepareCanvas(canvas)
+    }
+    resize()
+    const observer = new ResizeObserver(resize)
+    if (canvas.parentElement) observer.observe(canvas.parentElement)
+
     const draw = (now: number) => {
-      const { exercise: ex, severity: sev, active: isActive } = stateRef.current
-      const W = canvas.width
-      const H = canvas.height
-      ctx.clearRect(0, 0, W, H)
-      if (!ex || !isActive) {
-        raf = requestAnimationFrame(draw)
-        return
+      const context = prepareCanvas(canvas)
+      if (!context) return
+      const width = canvas.clientWidth
+      const height = canvas.clientHeight
+      context.clearRect(0, 0, width, height)
+      if (!exercise || !active) return
+
+      const tempo = exercise.baseTempo * 1000
+      const progress = ((now - start) % tempo) / tempo
+      const depth = (1 - Math.cos(progress * Math.PI * 2)) / 2
+      const color = COLORS[severity]
+      const centerX = width * 0.5
+      const ground = height * 0.9
+      const unit = height / 100
+      const hipDrop = 14 * depth * unit
+      const lean =
+        (exercise.id === 'deadlift' ? 10 : exercise.id === 'squat' ? 5 : 2) * depth * unit
+      const ankle = { x: centerX - 4 * unit, y: ground }
+      const knee = { x: centerX + (3 + 7 * depth) * unit, y: ground - 22 * unit }
+      const hip = { x: centerX - 2 * unit + 2 * depth * unit, y: ground - 40 * unit + hipDrop }
+      const shoulder = { x: centerX + lean, y: hip.y - 26 * unit }
+      const head = { x: shoulder.x + 1.5 * unit, y: shoulder.y - 8 * unit }
+      let elbow = { x: shoulder.x + 6 * unit, y: shoulder.y + 10 * unit }
+      let wrist = { x: shoulder.x + 4 * unit, y: shoulder.y + 18 * unit }
+
+      if (exercise.id === 'ohp') {
+        wrist = { x: shoulder.x + unit, y: shoulder.y + 14 * unit - 22 * (1 - depth) * unit }
+        elbow = { x: shoulder.x + 5 * unit, y: (shoulder.y + wrist.y) / 2 + 3 * unit }
+      } else if (exercise.id === 'bench') {
+        wrist = { x: shoulder.x + 10 * unit, y: shoulder.y + 12 * unit - 12 * (1 - depth) * unit }
+        elbow = { x: shoulder.x + 9 * unit, y: shoulder.y + 12 * unit }
+      } else if (exercise.id === 'curl') {
+        wrist = { x: shoulder.x + 7 * unit, y: shoulder.y + 20 * unit - 11 * (1 - depth) * unit }
+        elbow = { x: shoulder.x + 5 * unit, y: shoulder.y + 11 * unit }
+      } else if (exercise.id === 'squat' || exercise.id === 'deadlift') {
+        wrist = { x: shoulder.x + 8 * unit, y: shoulder.y + 2 * unit }
+        elbow = { x: shoulder.x + 6 * unit, y: shoulder.y + 6 * unit }
       }
 
-      const tempo = ex.baseTempo * 1000
-      const t = ((now - start) % tempo) / tempo
-      // rep depth 0 (top) -> 1 (bottom) -> 0
-      const s = (1 - Math.cos(t * Math.PI * 2)) / 2
-
-      const color = COLORS[sev]
-      const cx = W * 0.5
-      const ground = H * 0.9
-      const u = H / 100 // unit
-
-      // Side-view keypoints, exaggerated per exercise type
-      const hipDrop = 14 * s * u
-      const lean = (ex.id === 'deadlift' ? 10 : ex.id === 'squat' ? 5 : 2) * s * u
-
-      const ankle = { x: cx - 4 * u, y: ground }
-      const knee = { x: cx + (3 + 7 * s) * u, y: ground - 22 * u }
-      const hip = { x: cx - 2 * u + 2 * s * u, y: ground - 40 * u + hipDrop }
-      const shoulder = { x: cx + lean, y: hip.y - 26 * u }
-      const head = { x: shoulder.x + 1.5 * u, y: shoulder.y - 8 * u }
-
-      let elbow = { x: shoulder.x + 6 * u, y: shoulder.y + 10 * u }
-      let wrist = { x: shoulder.x + 4 * u, y: shoulder.y + 18 * u }
-      if (ex.id === 'ohp') {
-        wrist = { x: shoulder.x + 1 * u, y: shoulder.y + 14 * u - 22 * (1 - s) * u }
-        elbow = { x: shoulder.x + 5 * u, y: (shoulder.y + wrist.y) / 2 + 3 * u }
-      } else if (ex.id === 'bench') {
-        wrist = { x: shoulder.x + 10 * u, y: shoulder.y + 12 * u - 12 * (1 - s) * u }
-        elbow = { x: shoulder.x + 9 * u, y: shoulder.y + 12 * u }
-      } else if (ex.id === 'curl') {
-        wrist = { x: shoulder.x + 7 * u, y: shoulder.y + 20 * u - 11 * (1 - s) * u }
-        elbow = { x: shoulder.x + 5 * u, y: shoulder.y + 11 * u }
-      } else if (ex.id === 'squat' || ex.id === 'deadlift') {
-        wrist = { x: shoulder.x + 8 * u, y: shoulder.y + 2 * u }
-        elbow = { x: shoulder.x + 6 * u, y: shoulder.y + 6 * u }
-      }
-
-      const bones: [typeof ankle, typeof ankle][] = [
+      const bones = [
         [ankle, knee],
         [knee, hip],
         [hip, shoulder],
         [shoulder, elbow],
         [elbow, wrist],
       ]
-
-      ctx.lineCap = 'round'
-      // bones
+      context.lineCap = 'round'
+      context.strokeStyle = color
+      context.lineWidth = 4
+      context.globalAlpha = 0.85
       for (const [a, b] of bones) {
-        ctx.beginPath()
-        ctx.moveTo(a.x, a.y)
-        ctx.lineTo(b.x, b.y)
-        ctx.strokeStyle = color
-        ctx.globalAlpha = 0.85
-        ctx.lineWidth = 4
-        ctx.stroke()
+        context.beginPath()
+        context.moveTo(a.x, a.y)
+        context.lineTo(b.x, b.y)
+        context.stroke()
       }
-      ctx.globalAlpha = 1
+      context.globalAlpha = 1
+      context.beginPath()
+      context.arc(head.x, head.y, 5.5 * unit, 0, Math.PI * 2)
+      context.stroke()
 
-      // head
-      ctx.beginPath()
-      ctx.arc(head.x, head.y, 5.5 * u, 0, Math.PI * 2)
-      ctx.strokeStyle = color
-      ctx.lineWidth = 4
-      ctx.stroke()
-
-      // joints
-      for (const p of [ankle, knee, hip, shoulder, elbow, wrist]) {
-        ctx.beginPath()
-        ctx.arc(p.x, p.y, 4.5, 0, Math.PI * 2)
-        ctx.fillStyle = '#14110E'
-        ctx.fill()
-        ctx.lineWidth = 2.5
-        ctx.strokeStyle = color
-        ctx.stroke()
+      for (const point of [ankle, knee, hip, shoulder, elbow, wrist]) {
+        context.beginPath()
+        context.arc(point.x, point.y, 4.5, 0, Math.PI * 2)
+        context.fillStyle = '#14110E'
+        context.fill()
+        context.lineWidth = 2.5
+        context.strokeStyle = color
+        context.stroke()
       }
-
-      // key-joint angle readout
-      const joints: Record<string, [typeof ankle, typeof ankle, typeof ankle]> = {
-        Knee: [hip, knee, ankle],
-        Hip: [shoulder, hip, knee],
-        Elbow: [shoulder, elbow, wrist],
-        Shoulder: [hip, shoulder, elbow],
-      }
-      const [a, v, b] = joints[ex.keyJoint] ?? joints.Knee
-      const ang =
-        (Math.atan2(a.y - v.y, a.x - v.x) - Math.atan2(b.y - v.y, b.x - v.x)) * (180 / Math.PI)
-      const deg = Math.abs(((ang + 540) % 360) - 180)
-      ctx.beginPath()
-      ctx.arc(v.x, v.y, 14, Math.atan2(b.y - v.y, b.x - v.x), Math.atan2(a.y - v.y, a.x - v.x))
-      ctx.strokeStyle = color
-      ctx.lineWidth = 2
-      ctx.globalAlpha = 0.7
-      ctx.stroke()
-      ctx.globalAlpha = 1
-      ctx.font = '600 13px ui-monospace, monospace'
-      ctx.fillStyle = color
-      ctx.fillText(`${ex.keyJoint} ${Math.round(deg)}°`, v.x + 18, v.y - 10)
-
-      // ground line
-      ctx.beginPath()
-      ctx.moveTo(W * 0.2, ground + 2)
-      ctx.lineTo(W * 0.8, ground + 2)
-      ctx.strokeStyle = 'rgba(255,77,0,0.3)'
-      ctx.lineWidth = 2
-      ctx.setLineDash([6, 6])
-      ctx.stroke()
-      ctx.setLineDash([])
-
-      raf = requestAnimationFrame(draw)
+      animationFrame = window.requestAnimationFrame(draw)
     }
-    raf = requestAnimationFrame(draw)
+
+    if (exercise && active) animationFrame = window.requestAnimationFrame(draw)
+    else {
+      const context = prepareCanvas(canvas)
+      context?.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight)
+    }
 
     return () => {
-      cancelAnimationFrame(raf)
-      ro.disconnect()
+      window.cancelAnimationFrame(animationFrame)
+      observer.disconnect()
     }
-  }, [])
+  }, [active, exercise, severity])
 
-  return <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 h-full w-full" />
+  return (
+    <canvas
+      ref={canvasRef}
+      className="pointer-events-none absolute inset-0 z-[1] h-full w-full"
+      aria-hidden="true"
+    />
+  )
+}
+
+export default function PoseCanvas(props: PoseCanvasProps) {
+  if (props.mode === 'landmarks') {
+    return (
+      <LandmarkCanvas
+        active={props.active}
+        mirrored={props.mirrored}
+        pose={props.pose}
+        videoSize={props.videoSize}
+      />
+    )
+  }
+
+  return (
+    <SyntheticPoseCanvas
+      exercise={props.exercise}
+      severity={props.severity}
+      active={props.active}
+    />
+  )
 }

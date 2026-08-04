@@ -42,6 +42,8 @@ import {
 } from '@/components/ui/select'
 import PoseCanvas from '@/components/PoseCanvas'
 import EffortDial, { zoneFor } from '@/components/EffortDial'
+import { useMediaSource, type MediaSourceKind } from '@/hooks/useMediaSource'
+import { usePoseTracking } from '@/hooks/usePoseTracking'
 import {
   EXERCISES,
   angleForExercise,
@@ -53,8 +55,11 @@ import {
   type SessionPhase,
 } from '@/lib/simulation'
 
-type Source = 'camera' | 'upload' | 'demo' | null
+type Source = MediaSourceKind | 'demo' | null
+type SessionViewPhase = SessionPhase | 'media'
 type MobileTab = 'coach' | 'data'
+
+const CAMERA_VIDEO_MIRRORED = false
 
 const SEV_STYLE: Record<FeedItem['severity'], string> = {
   good: 'border-emerald-600 bg-emerald-50 text-emerald-950',
@@ -68,10 +73,8 @@ function now() {
 }
 
 export default function Session() {
-  const [phase, setPhase] = useState<SessionPhase>('setup')
-  const [source, setSource] = useState<Source>(null)
-  const [videoUrl, setVideoUrl] = useState<string | null>(null)
-  const [cameraError, setCameraError] = useState<string | null>(null)
+  const [phase, setPhase] = useState<SessionViewPhase>('setup')
+  const [demoActive, setDemoActive] = useState(false)
   const [exercise, setExercise] = useState<ExerciseDef | null>(null)
   const [angle, setAngle] = useState<CameraAngle | null>(null)
   const [confidence, setConfidence] = useState(0)
@@ -81,38 +84,58 @@ export default function Session() {
   const [summaryOpen, setSummaryOpen] = useState(false)
   const [tab, setTab] = useState<MobileTab>('coach')
 
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const streamRef = useRef<MediaStream | null>(null)
   const repTimerRef = useRef<number | null>(null)
   const clockRef = useRef<number | null>(null)
+  const analysisTimerRef = useRef<number | null>(null)
   const feedIdRef = useRef(0)
   const repsRef = useRef<RepData[]>([])
+  const {
+    source: mediaSource,
+    status: mediaStatus,
+    error: mediaError,
+    lifecycleKey: mediaLifecycleKey,
+    videoElement,
+    videoSize,
+    videoRef,
+    startCamera: openCamera,
+    startUpload: openUpload,
+    resetMedia,
+  } = useMediaSource()
+  const source: Source = demoActive ? 'demo' : mediaSource
+  const realTrackingMode = source === 'camera' || source === 'upload'
+  const poseTrackingEnabled =
+    realTrackingMode &&
+    phase === 'media' &&
+    (mediaStatus === 'ready' || mediaStatus === 'paused' || mediaStatus === 'ended')
+  const poseTracking = usePoseTracking({
+    active: poseTrackingEnabled,
+    lifecycleKey: mediaLifecycleKey,
+    video: videoElement,
+  })
+  const stopPoseTracking = poseTracking.stop
+  const trackedPose = poseTracking.latestResult?.poses[0] ?? null
 
   const pushFeed = useCallback((message: string, severity: FeedItem['severity']) => {
     setFeed((f) => [{ id: feedIdRef.current++, time: now(), message, severity }, ...f].slice(0, 40))
   }, [])
 
-  const stopCamera = useCallback(() => {
-    streamRef.current?.getTracks().forEach((t) => t.stop())
-    streamRef.current = null
-  }, [])
-
   const clearTimers = useCallback(() => {
     if (repTimerRef.current) window.clearTimeout(repTimerRef.current)
     if (clockRef.current) window.clearInterval(clockRef.current)
+    if (analysisTimerRef.current) window.clearTimeout(analysisTimerRef.current)
     repTimerRef.current = null
     clockRef.current = null
+    analysisTimerRef.current = null
   }, [])
 
   useEffect(() => {
     return () => {
       clearTimers()
-      stopCamera()
     }
-  }, [clearTimers, stopCamera])
+  }, [clearTimers])
 
   const scheduleNextRep = useCallback(
-    (ex: ExerciseDef) => {
+    function schedule(ex: ExerciseDef) {
       const nextIndex = repsRef.current.length + 1
       const prev = repsRef.current[repsRef.current.length - 1]
       const delay = prev ? prev.tempo * 1000 : ex.baseTempo * 1000
@@ -124,7 +147,7 @@ export default function Session() {
         if (rep.effort >= 85) {
           pushFeed(`Effort at ${rep.effort}% — facial strain & bar speed say you're grinding`, 'info')
         }
-        scheduleNextRep(ex)
+        schedule(ex)
       }, delay)
     },
     [pushFeed],
@@ -133,9 +156,11 @@ export default function Session() {
   const beginAnalysis = useCallback(
     (picked?: ExerciseDef) => {
       const ex = picked ?? EXERCISES[Math.floor(Math.random() * EXERCISES.length)]
+      clearTimers()
       setPhase('analyzing')
       pushFeed('Pose model initializing — tracking 17 keypoints…', 'info')
-      window.setTimeout(() => {
+      analysisTimerRef.current = window.setTimeout(() => {
+        analysisTimerRef.current = null
         setExercise(ex)
         setAngle(angleForExercise(ex))
         setConfidence(88 + Math.floor(Math.random() * 10))
@@ -149,49 +174,51 @@ export default function Session() {
         scheduleNextRep(ex)
       }, 2600)
     },
-    [pushFeed, scheduleNextRep],
+    [clearTimers, pushFeed, scheduleNextRep],
   )
 
-  const startCamera = async () => {
-    setCameraError(null)
-    try {
-      // rear camera on phones — that's the one pointed at the lifter
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' } },
-        audio: false,
-      })
-      streamRef.current = stream
-      setSource('camera')
-      if (videoRef.current) videoRef.current.srcObject = stream
-      beginAnalysis()
-    } catch {
-      setCameraError('Camera access was blocked. Allow camera permission, upload a video, or use demo mode.')
-      setSource('demo')
-    }
+  const clearAnalysisData = useCallback(() => {
+    clearTimers()
+    repsRef.current = []
+    setExercise(null)
+    setAngle(null)
+    setConfidence(0)
+    setReps([])
+    setFeed([])
+    setElapsed(0)
+    setSummaryOpen(false)
+  }, [clearTimers])
+
+  const startCamera = () => {
+    stopPoseTracking()
+    clearAnalysisData()
+    setDemoActive(false)
+    setPhase('media')
+    void openCamera()
   }
 
   const startUpload = (file: File) => {
-    const url = URL.createObjectURL(file)
-    setVideoUrl(url)
-    setSource('upload')
-    beginAnalysis()
+    stopPoseTracking()
+    clearAnalysisData()
+    setDemoActive(false)
+    setPhase('media')
+    openUpload(file)
   }
 
-  const startDemo = () => {
-    setSource('demo')
+  const startDemo = useCallback(() => {
+    stopPoseTracking()
+    clearAnalysisData()
+    resetMedia()
+    setDemoActive(true)
     beginAnalysis()
-  }
+  }, [beginAnalysis, clearAnalysisData, resetMedia, stopPoseTracking])
 
   // /session?demo=1 jumps straight into a simulated set (handy for hackathon judging)
-  const autoDemoRef = useRef(false)
   useEffect(() => {
-    if (autoDemoRef.current) return
-    if (new URLSearchParams(window.location.search).get('demo') === '1') {
-      autoDemoRef.current = true
-      startDemo()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    if (new URLSearchParams(window.location.search).get('demo') !== '1') return
+    const timer = window.setTimeout(startDemo, 0)
+    return () => window.clearTimeout(timer)
+  }, [startDemo])
 
   const overrideExercise = (id: string) => {
     const ex = EXERCISES.find((e) => e.id === id)
@@ -206,25 +233,18 @@ export default function Session() {
   }
 
   const endSession = () => {
+    stopPoseTracking()
     clearTimers()
-    stopCamera()
     setPhase('ended')
     setSummaryOpen(true)
   }
 
   const reset = () => {
-    clearTimers()
-    stopCamera()
-    repsRef.current = []
+    stopPoseTracking()
+    clearAnalysisData()
+    resetMedia()
     setPhase('setup')
-    setSource(null)
-    setVideoUrl(null)
-    setExercise(null)
-    setAngle(null)
-    setReps([])
-    setFeed([])
-    setElapsed(0)
-    setSummaryOpen(false)
+    setDemoActive(false)
     setTab('coach')
   }
 
@@ -235,10 +255,61 @@ export default function Session() {
   const mm = String(Math.floor(elapsed / 60)).padStart(2, '0')
   const ss = String(elapsed % 60).padStart(2, '0')
 
+  const trackingErrorMessage = mediaError?.message ?? poseTracking.error?.message ?? null
+  const trackingLabel = mediaError
+    ? 'MEDIA NEEDS ATTENTION'
+    : mediaStatus === 'loading'
+      ? source === 'camera'
+        ? 'PREPARING CAMERA…'
+        : 'PREPARING VIDEO…'
+      : poseTracking.status === 'loading'
+        ? 'LOADING POSE MODEL…'
+        : mediaStatus === 'paused' || poseTracking.status === 'paused'
+          ? 'VIDEO PAUSED'
+          : mediaStatus === 'ended' || poseTracking.status === 'ended'
+            ? 'VIDEO ENDED'
+            : poseTracking.status === 'no-pose'
+              ? 'NO PERSON DETECTED'
+              : poseTracking.status === 'tracking'
+                ? 'POSE TRACKING ACTIVE'
+                : poseTracking.status === 'error'
+                  ? 'POSE MODEL NEEDS ATTENTION'
+                  : mediaStatus === 'ready'
+                    ? 'POSE MODEL READY'
+                    : 'PREPARING MEDIA…'
+  const trackingDescription = trackingErrorMessage
+    ? trackingErrorMessage
+    : poseTracking.status === 'tracking'
+      ? 'Real browser pose landmarks are being tracked. Fitness metrics begin in Checkpoint 8.'
+      : poseTracking.status === 'no-pose'
+        ? 'Keep one full person visible in the frame. This is not a fatal tracking error.'
+        : mediaStatus === 'paused' || poseTracking.status === 'paused'
+          ? 'Inference is paused. Play or seek the video to analyze another frame.'
+          : mediaStatus === 'ended' || poseTracking.status === 'ended'
+            ? 'Playback ended. Replay the video to resume pose tracking.'
+            : poseTracking.status === 'loading'
+              ? 'Loading the Pose Landmarker Lite runtime and model assets.'
+              : 'Waiting for a playable video frame. No fitness analysis is being generated.'
+
   const statTiles = [
-    { label: 'REPS', value: reps.length, key: reps.length, accent: true },
-    { label: 'S / REP', value: latest ? latest.tempo.toFixed(1) : '—', key: latest?.tempo ?? 0, accent: false },
-    { label: 'FORM', value: avgForm || '—', key: avgForm, accent: false },
+    {
+      label: 'REPS',
+      value: realTrackingMode ? '—' : reps.length,
+      key: realTrackingMode ? 'unavailable' : reps.length,
+      accent: !realTrackingMode,
+    },
+    {
+      label: 'S / REP',
+      value: realTrackingMode ? '—' : latest ? latest.tempo.toFixed(1) : '—',
+      key: realTrackingMode ? 'unavailable' : (latest?.tempo ?? 0),
+      accent: false,
+    },
+    {
+      label: 'FORM',
+      value: realTrackingMode ? '—' : avgForm || '—',
+      key: realTrackingMode ? 'unavailable' : avgForm,
+      accent: false,
+    },
   ]
 
   const chartEl = (
@@ -246,7 +317,7 @@ export default function Session() {
       {reps.length === 0 ? (
         <div className="flex h-full items-center justify-center">
           <p className="mono-data text-[10px] tracking-[0.25em] text-muted-foreground">
-            REPS PLOT HERE ONCE YOUR SET STARTS
+            {realTrackingMode ? 'REP ANALYTICS BEGIN IN CHECKPOINT 8' : 'REPS PLOT HERE ONCE YOUR SET STARTS'}
           </p>
         </div>
       ) : (
@@ -278,7 +349,7 @@ export default function Session() {
     <div className="max-h-64 overflow-y-auto p-3 lg:max-h-72">
       {feed.length === 0 ? (
         <p className="mono-data p-2 text-[10px] tracking-[0.25em] text-muted-foreground">
-          CUES LAND HERE MID-SET
+          {realTrackingMode ? 'REAL-TIME COACHING BEGINS IN CHECKPOINT 8' : 'CUES LAND HERE MID-SET'}
         </p>
       ) : (
         <ul className="space-y-2">
@@ -319,9 +390,11 @@ export default function Session() {
             <span className="text-xl font-bold tracking-tight">
               FORMFIT<span className="text-primary">*</span>
             </span>
-            <span className="mono-data hidden border-2 border-foreground bg-secondary px-2 py-0.5 text-[9px] font-semibold tracking-[0.25em] sm:inline-block">
-              SIMULATED ANALYSIS
-            </span>
+            {source && (
+              <span className="mono-data hidden border-2 border-foreground bg-secondary px-2 py-0.5 text-[9px] font-semibold tracking-[0.25em] sm:inline-block">
+                {source === 'demo' ? 'SIMULATED ANALYSIS' : 'REAL POSE TRACKING'}
+              </span>
+            )}
           </div>
           {/* desktop-only: REC + END SET (mobile gets a bottom bar) */}
           <div className="hidden items-center gap-4 lg:flex">
@@ -350,11 +423,15 @@ export default function Session() {
           <div className="lg:col-span-2">
             <div className="hard-shadow relative aspect-[4/5] overflow-hidden border-2 border-foreground bg-foreground sm:aspect-video">
               {/* video source */}
-              {source === 'camera' && (
-                <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
-              )}
-              {source === 'upload' && videoUrl && (
-                <video src={videoUrl} autoPlay loop muted playsInline className="h-full w-full object-cover" />
+              {(source === 'camera' || source === 'upload') && (
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  controls={source === 'upload'}
+                  className="h-full w-full object-cover"
+                />
               )}
               {source === 'demo' && <div className="bg-grid absolute inset-0 bg-background" />}
 
@@ -406,11 +483,41 @@ export default function Session() {
                       <Zap className="mr-2 h-5 w-5" /> DEMO MODE
                     </Button>
                   </div>
-                  {cameraError && (
-                    <p className="flex max-w-md items-center gap-2 border-2 border-amber-600 bg-amber-50 px-3 py-2 text-left text-xs text-amber-900">
-                      <TriangleAlert className="h-4 w-4 shrink-0" /> {cameraError}
-                    </p>
-                  )}
+                </div>
+              )}
+
+              {phase === 'media' && (
+                <div className="absolute inset-x-4 top-4 z-10 border-2 border-foreground bg-background/95 p-4 backdrop-blur">
+                  <div className="flex items-start gap-3">
+                    {trackingErrorMessage ? (
+                      <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+                    ) : (
+                      <Video className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="mono-data text-[10px] font-semibold tracking-[0.2em]">
+                        {trackingLabel}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {trackingDescription}
+                      </p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Button size="sm" variant="outline" onClick={reset}>
+                          CHOOSE ANOTHER SOURCE
+                        </Button>
+                        {poseTracking.status === 'error' && poseTracking.error?.recoverable && (
+                          <Button size="sm" onClick={poseTracking.retry}>
+                            RETRY POSE MODEL
+                          </Button>
+                        )}
+                        {mediaError && (
+                          <Button size="sm" onClick={startDemo}>
+                            RUN SIMULATED DEMO
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -431,7 +538,21 @@ export default function Session() {
               )}
 
               {/* pose overlay */}
-              <PoseCanvas exercise={exercise} severity={latest?.severity ?? 'good'} active={phase === 'live'} />
+              <PoseCanvas
+                exercise={exercise}
+                severity={latest?.severity ?? 'good'}
+                active={
+                  source === 'demo'
+                    ? phase === 'live'
+                    : poseTrackingEnabled &&
+                      poseTracking.status !== 'error' &&
+                      poseTracking.status !== 'ended'
+                }
+                mode={realTrackingMode ? 'landmarks' : 'synthetic'}
+                pose={trackedPose}
+                videoSize={videoSize}
+                mirrored={source === 'camera' && CAMERA_VIDEO_MIRRORED}
+              />
 
               {/* viewfinder furniture */}
               {phase === 'live' && (
@@ -491,16 +612,22 @@ export default function Session() {
                   <Flame className="h-4 w-4 text-primary" /> EFFORT
                 </p>
                 <motion.p
-                  key={zone.label}
+                  key={realTrackingMode ? 'unavailable' : zone.label}
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
                   className="mono-data mt-1 text-xs font-semibold tracking-[0.25em]"
-                  style={{ color: zone.color }}
+                  style={{ color: realTrackingMode ? undefined : zone.color }}
                 >
-                  {zone.label}
+                  {realTrackingMode ? 'NOT AVAILABLE' : zone.label}
                 </motion.p>
               </div>
-              <EffortDial value={phase === 'live' || phase === 'ended' ? effort : 0} size={92} />
+              {realTrackingMode ? (
+                <div className="mono-data flex h-[92px] w-[92px] items-center justify-center border-2 border-dashed border-foreground/30 text-2xl text-muted-foreground">
+                  —
+                </div>
+              ) : (
+                <EffortDial value={phase === 'live' || phase === 'ended' ? effort : 0} size={92} />
+              )}
             </div>
 
             {/* compact detection */}
@@ -550,7 +677,11 @@ export default function Session() {
                       animate={{ opacity: 1 }}
                       className="mono-data text-[10px] tracking-[0.25em] text-muted-foreground"
                     >
-                      {phase === 'analyzing' ? 'CLASSIFYING MOVEMENT…' : 'NO MOVEMENT DETECTED YET'}
+                      {realTrackingMode
+                        ? 'EXERCISE ANALYTICS BEGIN IN CHECKPOINT 8'
+                        : phase === 'analyzing'
+                          ? 'CLASSIFYING MOVEMENT…'
+                          : 'NO MOVEMENT DETECTED YET'}
                     </motion.p>
                   )}
                 </AnimatePresence>
@@ -640,7 +771,11 @@ export default function Session() {
                       animate={{ opacity: 1 }}
                       className="mono-data text-[10px] tracking-[0.25em] text-muted-foreground"
                     >
-                      {phase === 'analyzing' ? 'CLASSIFYING MOVEMENT…' : 'NO MOVEMENT DETECTED YET'}
+                      {realTrackingMode
+                        ? 'EXERCISE ANALYTICS BEGIN IN CHECKPOINT 8'
+                        : phase === 'analyzing'
+                          ? 'CLASSIFYING MOVEMENT…'
+                          : 'NO MOVEMENT DETECTED YET'}
                     </motion.p>
                   )}
                 </AnimatePresence>
@@ -672,19 +807,27 @@ export default function Session() {
                   <Flame className="h-4 w-4 text-primary" /> EFFORT LEVEL
                 </span>
                 <motion.span
-                  key={zone.label}
+                  key={realTrackingMode ? 'unavailable' : zone.label}
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
                   className="mono-data text-[10px] font-semibold tracking-[0.25em]"
-                  style={{ color: zone.color }}
+                  style={{ color: realTrackingMode ? undefined : zone.color }}
                 >
-                  {zone.label}
+                  {realTrackingMode ? 'NOT AVAILABLE' : zone.label}
                 </motion.span>
               </div>
               <div className="flex items-center justify-around gap-4 p-5">
-                <EffortDial value={phase === 'live' || phase === 'ended' ? effort : 0} size={150} />
+                {realTrackingMode ? (
+                  <div className="mono-data flex h-[150px] w-[150px] items-center justify-center border-2 border-dashed border-foreground/30 text-4xl text-muted-foreground">
+                    —
+                  </div>
+                ) : (
+                  <EffortDial value={phase === 'live' || phase === 'ended' ? effort : 0} size={150} />
+                )}
                 <p className="mono-data max-w-[130px] text-[9px] leading-relaxed tracking-[0.15em] text-muted-foreground">
-                  FUSED FROM REP COUNT, REP-SPEED DECAY &amp; FACIAL STRAIN CUES
+                  {realTrackingMode
+                    ? 'EFFORT ESTIMATION BEGINS IN CHECKPOINT 8'
+                    : 'FUSED FROM REP COUNT, REP-SPEED DECAY & FACIAL STRAIN CUES'}
                 </p>
               </div>
             </div>
