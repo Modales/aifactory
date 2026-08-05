@@ -431,7 +431,7 @@ export default function Session() {
         <div className="lg:grid lg:grid-cols-3 lg:gap-6">
           {/* Video panel */}
           <div className="lg:col-span-2">
-            <div className="hard-shadow relative aspect-[4/5] overflow-hidden border-2 border-foreground bg-foreground sm:aspect-video">
+            <div className={`hard-shadow relative border-2 border-foreground bg-foreground ${phase === 'setup' ? 'min-h-[520px]' : 'aspect-[4/5] sm:aspect-video'}`}>
               {source === 'camera' && (
                 <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
               )}
@@ -440,18 +440,18 @@ export default function Session() {
               )}
               {source === 'demo' && <div className="bg-grid absolute inset-0 bg-background" />}
 
-              {/* Pre-workout Setup Overlay (Fixed Layout, No Scrollbars) */}
+              {/* Pre-workout Setup Overlay (Completely Visible, Unclipped Buttons) */}
               {phase === 'setup' && (
-                <div className="bg-grid absolute inset-0 flex flex-col items-center justify-between p-4 text-center z-10 overflow-hidden bg-background/95 backdrop-blur-sm">
+                <div className="bg-grid absolute inset-0 flex flex-col items-center justify-between p-4 sm:p-5 text-center z-10 bg-background/95 backdrop-blur-sm">
                   <div>
-                    <p className="mono-data text-[10px] tracking-[0.3em] text-primary">WORKOUT SETUP</p>
+                    <p className="mono-data text-[10px] tracking-[0.3em] text-primary font-bold">WORKOUT SETUP</p>
                     <h1 className="mt-0.5 text-xl sm:text-2xl font-bold uppercase tracking-tight">
                       Configure your <span className="font-serifit normal-case italic text-primary">set</span>
                     </h1>
                   </div>
 
                   {/* AI Camera Guidance Box & 3D Preview Window */}
-                  <div className="w-full max-w-sm space-y-2 border-2 border-foreground bg-card p-3 hard-shadow-sm text-left">
+                  <div className="w-full max-w-md space-y-2.5 border-2 border-foreground bg-card p-3.5 sm:p-4 hard-shadow-sm text-left">
                     <div>
                       <label className="mono-data block text-[10px] font-bold tracking-wider text-primary mb-1">
                         SELECT EXERCISE
@@ -480,7 +480,7 @@ export default function Session() {
                         </span>
                       </div>
 
-                      {/* Fixed-height 3D Pose Canvas Animation Preview Window */}
+                      {/* 3D Pose Canvas Animation Preview Window */}
                       <div className="relative h-28 w-full overflow-hidden border-2 border-foreground bg-card shadow-inner">
                         <div className="bg-grid absolute inset-0" />
                         <PoseCanvas
@@ -505,22 +505,22 @@ export default function Session() {
                     </div>
                   </div>
 
-                  <div className="flex w-full max-w-sm flex-row items-center justify-center gap-2">
+                  <div className="flex w-full max-w-md flex-col gap-2 sm:flex-row sm:items-center sm:justify-center">
                     <Button
                       size="sm"
-                      className="hard-shadow-sm h-9 flex-1 border-2 border-foreground text-[11px] font-bold transition-transform hover:-translate-y-0.5"
+                      className="hard-shadow-sm h-10 flex-1 border-2 border-foreground text-xs font-bold transition-transform hover:-translate-y-0.5"
                       onClick={startCamera}
                     >
-                      <Camera className="mr-1.5 h-3.5 w-3.5" /> START CAMERA
+                      <Camera className="mr-1.5 h-4 w-4" /> START CAMERA
                     </Button>
                     <Button
                       size="sm"
                       variant="outline"
-                      className="hard-shadow-sm h-9 flex-1 border-2 border-foreground bg-card text-[11px] font-bold transition-transform hover:-translate-y-0.5"
+                      className="hard-shadow-sm h-10 flex-1 border-2 border-foreground bg-card text-xs font-bold transition-transform hover:-translate-y-0.5"
                       asChild
                     >
                       <label className="cursor-pointer">
-                        <Upload className="mr-1.5 h-3.5 w-3.5" /> UPLOAD VIDEO
+                        <Upload className="mr-1.5 h-4 w-4" /> UPLOAD VIDEO
                         <input
                           type="file"
                           accept="video/*"
@@ -535,10 +535,10 @@ export default function Session() {
                     <Button
                       size="sm"
                       variant="outline"
-                      className="hard-shadow-sm h-9 flex-1 border-2 border-foreground bg-foreground text-[11px] font-bold text-background transition-transform hover:-translate-y-0.5 hover:bg-foreground"
+                      className="hard-shadow-sm h-10 flex-1 border-2 border-foreground bg-foreground text-xs font-bold text-background transition-transform hover:-translate-y-0.5 hover:bg-foreground"
                       onClick={startDemo}
                     >
-                      <Zap className="mr-1.5 h-3.5 w-3.5" /> DEMO MODE
+                      <Zap className="mr-1.5 h-4 w-4" /> DEMO MODE
                     </Button>
                   </div>
 
