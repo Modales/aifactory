@@ -1,5 +1,9 @@
 import { useEffect, useRef } from 'react'
 import type { CameraAngle, ExerciseDef } from '@/lib/simulation'
+import { MIN_POSE_VISIBILITY } from '@/lib/pose/config'
+import { POSE_CONNECTIONS } from '@/lib/pose/connections'
+import { landmarkDisplayPoint, objectFitRect, type Size } from '@/lib/pose/geometry'
+import type { DetectedPose } from '@/lib/pose/types'
 
 interface PoseCanvasProps {
   exercise: ExerciseDef | null
@@ -7,6 +11,18 @@ interface PoseCanvasProps {
   active: boolean
   /** detected camera viewpoint — the skeleton re-rigs to match */
   angle?: CameraAngle | null
+  /** landmarks = real MediaPipe overlay on live video; synthetic = simulated rig */
+  mode?: 'synthetic' | 'landmarks'
+  pose?: DetectedPose | null
+  videoSize?: Size | null
+  mirrored?: boolean
+}
+
+interface LandmarkDrawingState {
+  active: boolean
+  mirrored: boolean
+  pose: DetectedPose | null
+  videoSize: Size | null
 }
 
 const COLORS = {
@@ -295,12 +311,122 @@ function jointDeg(a: Pt, v: Pt, b: Pt): number {
   return Math.abs(((ang + 540) % 360) - 180)
 }
 
+/* ── real MediaPipe landmark overlay (camera / uploaded video) ── */
+function prepareCanvas(canvas: HTMLCanvasElement): CanvasRenderingContext2D | null {
+  const width = canvas.clientWidth
+  const height = canvas.clientHeight
+  const dpr = Math.max(1, window.devicePixelRatio || 1)
+  const backingWidth = Math.round(width * dpr)
+  const backingHeight = Math.round(height * dpr)
+
+  if (canvas.width !== backingWidth || canvas.height !== backingHeight) {
+    canvas.width = backingWidth
+    canvas.height = backingHeight
+  }
+
+  const context = canvas.getContext('2d')
+  context?.setTransform(dpr, 0, 0, dpr, 0, 0)
+  return context
+}
+
+function isVisible(visibility: number | undefined): boolean {
+  return visibility === undefined || visibility >= MIN_POSE_VISIBILITY
+}
+
+function drawLandmarks(canvas: HTMLCanvasElement, state: LandmarkDrawingState): void {
+  const context = prepareCanvas(canvas)
+  if (!context) return
+
+  const container = { width: canvas.clientWidth, height: canvas.clientHeight }
+  context.clearRect(0, 0, container.width, container.height)
+  if (!state.active || !state.pose || !state.videoSize) return
+
+  const displayRect = objectFitRect(container, state.videoSize, 'cover')
+  if (!displayRect) return
+
+  const landmarks = state.pose.landmarks
+  context.lineCap = 'round'
+  context.lineJoin = 'round'
+  context.strokeStyle = '#FF4D00'
+  context.lineWidth = 3
+  context.globalAlpha = 0.9
+
+  for (const [startIndex, endIndex] of POSE_CONNECTIONS) {
+    const start = landmarks[startIndex]
+    const end = landmarks[endIndex]
+    if (!start || !end || !isVisible(start.visibility) || !isVisible(end.visibility)) continue
+    const a = landmarkDisplayPoint(start, displayRect, state.mirrored)
+    const b = landmarkDisplayPoint(end, displayRect, state.mirrored)
+    context.beginPath()
+    context.moveTo(a.x, a.y)
+    context.lineTo(b.x, b.y)
+    context.stroke()
+  }
+
+  context.globalAlpha = 1
+  for (const landmark of landmarks) {
+    if (!isVisible(landmark.visibility)) continue
+    const point = landmarkDisplayPoint(landmark, displayRect, state.mirrored)
+    context.beginPath()
+    context.arc(point.x, point.y, 4, 0, Math.PI * 2)
+    context.fillStyle = '#14110E'
+    context.fill()
+    context.lineWidth = 2
+    context.strokeStyle = '#FF4D00'
+    context.stroke()
+  }
+}
+
+function LandmarkCanvas({
+  active,
+  mirrored,
+  pose,
+  videoSize,
+}: Pick<PoseCanvasProps, 'active' | 'mirrored' | 'pose' | 'videoSize'>) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const drawingRef = useRef<LandmarkDrawingState>({
+    active,
+    mirrored: mirrored ?? false,
+    pose: pose ?? null,
+    videoSize: videoSize ?? null,
+  })
+
+  useEffect(() => {
+    drawingRef.current = {
+      active,
+      mirrored: mirrored ?? false,
+      pose: pose ?? null,
+      videoSize: videoSize ?? null,
+    }
+    const canvas = canvasRef.current
+    if (canvas) drawLandmarks(canvas, drawingRef.current)
+  }, [active, mirrored, pose, videoSize])
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const redraw = () => drawLandmarks(canvas, drawingRef.current)
+    redraw()
+    const observer = new ResizeObserver(redraw)
+    if (canvas.parentElement) observer.observe(canvas.parentElement)
+    return () => observer.disconnect()
+  }, [])
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className="pointer-events-none absolute inset-0 z-[1] h-full w-full"
+      aria-hidden="true"
+    />
+  )
+}
+
 /**
  * Stylized animated pose-estimation overlay — 17 keypoints on a
  * continuous camera-orbit rig, buttery one-euro smoothed motion.
- * Stands in for the real model output while the backend is built.
+ * Drives demo mode and the setup-screen perspective preview.
  */
-export default function PoseCanvas({ exercise, severity, active, angle = null }: PoseCanvasProps) {
+function SyntheticPoseCanvas({ exercise, severity, active, angle = null }: PoseCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const stateRef = useRef({ exercise, severity, active, angle })
   stateRef.current = { exercise, severity, active, angle }
@@ -527,4 +653,30 @@ export default function PoseCanvas({ exercise, severity, active, angle = null }:
   }, [])
 
   return <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 h-full w-full" />
+}
+
+/**
+ * Pose overlay router: real MediaPipe landmarks for camera/upload,
+ * the simulated continuous-orbit rig for demo mode & previews.
+ */
+export default function PoseCanvas(props: PoseCanvasProps) {
+  if (props.mode === 'landmarks') {
+    return (
+      <LandmarkCanvas
+        active={props.active}
+        mirrored={props.mirrored}
+        pose={props.pose}
+        videoSize={props.videoSize}
+      />
+    )
+  }
+
+  return (
+    <SyntheticPoseCanvas
+      exercise={props.exercise}
+      severity={props.severity}
+      active={props.active}
+      angle={props.angle}
+    />
+  )
 }
