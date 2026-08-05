@@ -33,7 +33,7 @@ function mapLandmark(landmark: MediaPipeNormalizedLandmark | MediaPipeLandmark):
 }
 
 function mapResult(result: PoseLandmarkerResult, timestampMs: number): PoseFrame {
-  const poses: DetectedPose[] = result.landmarks.map((landmarks, index) => {
+  const poses: DetectedPose[] = result.landmarks.map((landmarks: any, index: number) => {
     const worldLandmarks = result.worldLandmarks[index]
     return {
       landmarks: landmarks.map(mapLandmark),

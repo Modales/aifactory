@@ -15,6 +15,7 @@ import {
   Video,
   WifiOff,
   Zap,
+  RefreshCw,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -608,12 +609,12 @@ export default function Session() {
                     </Button>
                   </div>
 
-                  {cameraError && (
+                  {trackingErrorMessage && (
                     <div className="flex flex-col gap-1 max-w-sm border-2 border-amber-600 bg-amber-50 p-2 text-left text-[10px] text-amber-950">
                       <div className="flex items-center gap-1.5 font-bold">
                         <TriangleAlert className="h-3.5 w-3.5 text-amber-600 shrink-0" /> CAMERA DIAGNOSTIC
                       </div>
-                      <p>{cameraError}</p>
+                      <p>{trackingErrorMessage}</p>
                       <div className="flex gap-2 pt-0.5">
                         <Button size="sm" variant="outline" className="h-7 border border-amber-800 text-[10px] font-bold" onClick={startCamera}>
                           <RefreshCw className="mr-1 h-3 w-3" /> RETRY
