@@ -44,6 +44,7 @@ import PoseCanvas from '@/components/PoseCanvas'
 import EffortDial, { zoneFor } from '@/components/EffortDial'
 import { useMediaSource, type MediaSourceKind } from '@/hooks/useMediaSource'
 import { usePoseTracking } from '@/hooks/usePoseTracking'
+import { useSquatAnalysis } from '@/hooks/useSquatAnalysis'
 import {
   EXERCISES,
   angleForExercise,
@@ -89,6 +90,7 @@ export default function Session() {
   const analysisTimerRef = useRef<number | null>(null)
   const feedIdRef = useRef(0)
   const repsRef = useRef<RepData[]>([])
+  const consumedSquatBatchRef = useRef(0)
   const {
     source: mediaSource,
     status: mediaStatus,
@@ -110,7 +112,15 @@ export default function Session() {
   const poseTracking = usePoseTracking({
     active: poseTrackingEnabled,
     lifecycleKey: mediaLifecycleKey,
+    source: mediaSource,
     video: videoElement,
+  })
+  const squatAnalysis = useSquatAnalysis({
+    exerciseId: realTrackingMode ? (exercise?.id ?? null) : null,
+    mediaLifecycleKey,
+    timelineRevision: poseTracking.timelineRevision,
+    sample: poseTracking.latestSample,
+    videoSize,
   })
   const stopPoseTracking = poseTracking.stop
   const trackedPose = poseTracking.latestResult?.poses[0] ?? null
@@ -118,6 +128,32 @@ export default function Session() {
   const pushFeed = useCallback((message: string, severity: FeedItem['severity']) => {
     setFeed((f) => [{ id: feedIdRef.current++, time: now(), message, severity }, ...f].slice(0, 40))
   }, [])
+
+  useEffect(() => {
+    if (squatAnalysis.eventBatchId <= consumedSquatBatchRef.current) return
+    consumedSquatBatchRef.current = squatAnalysis.eventBatchId
+    for (const event of squatAnalysis.events) {
+      if (event.type === 'rep-completed') {
+        pushFeed(
+          `Rep ${event.rep.repIndex} recorded — ${(event.rep.durationMs / 1000).toFixed(1)} s.`,
+          'good',
+        )
+        for (const signal of event.rep.signals) {
+          const severity: FeedItem['severity'] =
+            signal.code === 'depth-not-reached' || signal.code === 'torso-inclination' || signal.code === 'movement-control'
+              ? 'warn'
+              : signal.code === 'depth-reached'
+                ? 'good'
+                : 'info'
+          pushFeed(signal.message, severity)
+        }
+      } else if (event.partial.signals.length) {
+        event.partial.signals.forEach((signal) => pushFeed(signal.message, 'warn'))
+      } else {
+        pushFeed('Movement was observed, but the evidence was insufficient to record a complete rep.', 'info')
+      }
+    }
+  }, [pushFeed, squatAnalysis.eventBatchId, squatAnalysis.events])
 
   const clearTimers = useCallback(() => {
     if (repTimerRef.current) window.clearTimeout(repTimerRef.current)
@@ -225,6 +261,18 @@ export default function Session() {
     if (!ex) return
     clearTimers()
     setExercise(ex)
+    if (realTrackingMode) {
+      setAngle(ex.bestAngle)
+      setConfidence(0)
+      setFeed([])
+      pushFeed(
+        ex.id === 'squat'
+          ? 'Back Squat selected — use a clear side view for rep analysis.'
+          : `${ex.name} is not supported for real analysis yet. Pose landmarks remain visible.`,
+        'info',
+      )
+      return
+    }
     setAngle(angleForExercise(ex))
     setConfidence(91 + Math.floor(Math.random() * 7))
     pushFeed(`Exercise corrected to ${ex.name} — recalibrating tracking`, 'info')
@@ -249,11 +297,36 @@ export default function Session() {
   }
 
   const latest = reps[reps.length - 1]
+  const realReps = squatAnalysis.completedReps
+  const latestRealRep = realReps[realReps.length - 1]
+  const realSquatSelected = realTrackingMode && exercise?.id === 'squat'
   const avgForm = reps.length ? Math.round(reps.reduce((a, r) => a + r.formScore, 0) / reps.length) : 0
   const effort = latest?.effort ?? 0
   const zone = zoneFor(effort)
   const mm = String(Math.floor(elapsed / 60)).padStart(2, '0')
   const ss = String(elapsed % 60).padStart(2, '0')
+  const realDepthLabel = latestRealRep?.depth === 'reached'
+    ? 'REACHED'
+    : latestRealRep?.depth === 'not-reached'
+      ? 'NOT OBSERVED'
+      : latestRealRep?.depth === 'unknown'
+        ? 'UNKNOWN'
+        : '—'
+  const analysisReadiness = !realTrackingMode
+    ? null
+    : !exercise
+      ? 'Select an exercise to begin real analysis.'
+      : exercise.id !== 'squat'
+        ? `${exercise.name} is not supported for real analysis yet.`
+        : squatAnalysis.snapshot.readiness === 'insufficient-view'
+          ? 'A reliable side view is not currently available.'
+          : squatAnalysis.snapshot.readiness === 'not-ready'
+            ? 'Hold a clear side-on standing position while the analyzer calibrates.'
+            : `Tracking ${squatAnalysis.snapshot.selectedSide ?? 'selected'} side — phase ${squatAnalysis.snapshot.phase.replace('_', ' ')}.`
+  const realAverageTempo = realReps.length
+    ? realReps.reduce((sum, rep) => sum + rep.durationMs, 0) / realReps.length / 1000
+    : null
+  const realObservationCount = realReps.reduce((sum, rep) => sum + rep.signals.length, 0)
 
   const trackingErrorMessage = mediaError?.message ?? poseTracking.error?.message ?? null
   const trackingLabel = mediaError
@@ -280,7 +353,7 @@ export default function Session() {
   const trackingDescription = trackingErrorMessage
     ? trackingErrorMessage
     : poseTracking.status === 'tracking'
-      ? 'Real browser pose landmarks are being tracked. Fitness metrics begin in Checkpoint 8.'
+      ? analysisReadiness ?? 'Real browser pose landmarks are being tracked.'
       : poseTracking.status === 'no-pose'
         ? 'Keep one full person visible in the frame. This is not a fatal tracking error.'
         : mediaStatus === 'paused' || poseTracking.status === 'paused'
@@ -294,32 +367,53 @@ export default function Session() {
   const statTiles = [
     {
       label: 'REPS',
-      value: realTrackingMode ? '—' : reps.length,
-      key: realTrackingMode ? 'unavailable' : reps.length,
-      accent: !realTrackingMode,
+      value: realTrackingMode ? (realSquatSelected ? squatAnalysis.snapshot.repCount : '—') : reps.length,
+      key: realTrackingMode ? (realSquatSelected ? squatAnalysis.snapshot.repCount : 'unavailable') : reps.length,
+      accent: !realTrackingMode || realSquatSelected,
     },
     {
       label: 'S / REP',
-      value: realTrackingMode ? '—' : latest ? latest.tempo.toFixed(1) : '—',
-      key: realTrackingMode ? 'unavailable' : (latest?.tempo ?? 0),
+      value: realTrackingMode
+        ? realSquatSelected && latestRealRep ? (latestRealRep.durationMs / 1000).toFixed(1) : '—'
+        : latest ? latest.tempo.toFixed(1) : '—',
+      key: realTrackingMode ? (latestRealRep?.durationMs ?? 'unavailable') : (latest?.tempo ?? 0),
       accent: false,
     },
     {
-      label: 'FORM',
-      value: realTrackingMode ? '—' : avgForm || '—',
-      key: realTrackingMode ? 'unavailable' : avgForm,
+      label: realTrackingMode ? 'DEPTH' : 'FORM',
+      value: realTrackingMode ? (realSquatSelected ? realDepthLabel : '—') : avgForm || '—',
+      key: realTrackingMode ? `${realDepthLabel}:${latestRealRep?.repIndex ?? 0}` : avgForm,
       accent: false,
     },
   ]
 
   const chartEl = (
     <div className="h-48 p-3">
-      {reps.length === 0 ? (
+      {(realTrackingMode ? realReps.length : reps.length) === 0 ? (
         <div className="flex h-full items-center justify-center">
           <p className="mono-data text-[10px] tracking-[0.25em] text-muted-foreground">
-            {realTrackingMode ? 'REP ANALYTICS BEGIN IN CHECKPOINT 8' : 'REPS PLOT HERE ONCE YOUR SET STARTS'}
+            {realTrackingMode
+              ? realSquatSelected
+                ? 'COMPLETED SQUAT TEMPO APPEARS HERE'
+                : 'SELECT BACK SQUAT FOR REAL REP ANALYSIS'
+              : 'REPS PLOT HERE ONCE YOUR SET STARTS'}
           </p>
         </div>
+      ) : realTrackingMode ? (
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart
+            data={realReps.map((rep) => ({ rep: rep.repIndex, tempo: rep.durationMs / 1000 }))}
+            margin={{ top: 4, right: 8, bottom: 0, left: -18 }}
+          >
+            <CartesianGrid stroke="hsl(30 8% 7% / 0.12)" vertical={false} />
+            <XAxis dataKey="rep" tick={{ fill: 'hsl(30 5% 38%)', fontSize: 11, fontFamily: 'JetBrains Mono' }} tickLine={false} axisLine={false} />
+            <YAxis unit="s" tick={{ fill: 'hsl(30 5% 38%)', fontSize: 11, fontFamily: 'JetBrains Mono' }} tickLine={false} axisLine={false} />
+            <Tooltip
+              contentStyle={{ background: 'hsl(40 33% 97%)', border: '2px solid hsl(30 8% 7%)', borderRadius: 2, fontSize: 12, fontFamily: 'JetBrains Mono' }}
+            />
+            <Line type="monotone" dataKey="tempo" name="Tempo (s)" stroke="hsl(221 83% 45%)" strokeWidth={2} dot={{ r: 3, fill: 'hsl(221 83% 45%)' }} />
+          </ComposedChart>
+        </ResponsiveContainer>
       ) : (
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={reps} margin={{ top: 4, right: 8, bottom: 0, left: -18 }}>
@@ -349,7 +443,11 @@ export default function Session() {
     <div className="max-h-64 overflow-y-auto p-3 lg:max-h-72">
       {feed.length === 0 ? (
         <p className="mono-data p-2 text-[10px] tracking-[0.25em] text-muted-foreground">
-          {realTrackingMode ? 'REAL-TIME COACHING BEGINS IN CHECKPOINT 8' : 'CUES LAND HERE MID-SET'}
+          {realTrackingMode
+            ? realSquatSelected
+              ? 'EVIDENCE-BASED SQUAT OBSERVATIONS APPEAR HERE'
+              : 'SELECT BACK SQUAT FOR REAL OBSERVATIONS'
+            : 'CUES LAND HERE MID-SET'}
         </p>
       ) : (
         <ul className="space-y-2">
@@ -515,6 +613,11 @@ export default function Session() {
                             RUN SIMULATED DEMO
                           </Button>
                         )}
+                        {realSquatSelected && (
+                          <Button size="sm" onClick={endSession}>
+                            END ANALYSIS
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -578,7 +681,7 @@ export default function Session() {
               <div className="flex items-center gap-2 border-b-2 border-foreground px-4 py-2.5">
                 <Activity className="h-4 w-4 text-primary" />
                 <span className="mono-data text-[10px] font-semibold tracking-[0.25em]">
-                  REP TEMPO × FORM SCORE
+                  {realTrackingMode ? 'REAL SQUAT REP TEMPO' : 'REP TEMPO × FORM SCORE'}
                 </span>
               </div>
               {chartEl}
@@ -648,15 +751,22 @@ export default function Session() {
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-serifit text-xl italic leading-none">{exercise.name}</span>
-                        <span className="mono-data flex items-center gap-2 text-[10px]">
-                          <span className="border-2 border-foreground bg-foreground px-1.5 py-0.5 tracking-widest text-background">
-                            {angle?.toUpperCase()}
+                          <span className="mono-data flex items-center gap-2 text-[10px]">
+                            <span className="border-2 border-foreground bg-foreground px-1.5 py-0.5 tracking-widest text-background">
+                              {realTrackingMode ? `${exercise.bestAngle.toUpperCase()} VIEW` : angle?.toUpperCase()}
+                            </span>
+                            <span className="border-2 border-foreground bg-primary px-1.5 py-0.5 font-semibold text-primary-foreground">
+                              {realTrackingMode
+                                ? exercise.id === 'squat'
+                                  ? `${Math.round(squatAnalysis.snapshot.trackingConfidence * 100)}% TRACKING`
+                                  : 'UNSUPPORTED'
+                                : `${confidence}%`}
+                            </span>
                           </span>
-                          <span className="border-2 border-foreground bg-primary px-1.5 py-0.5 font-semibold text-primary-foreground">
-                            {confidence}%
-                          </span>
-                        </span>
-                      </div>
+                        </div>
+                        {realTrackingMode && (
+                          <p className="mt-2 text-xs text-muted-foreground">{analysisReadiness}</p>
+                        )}
                       <Select value={exercise.id} onValueChange={overrideExercise}>
                         <SelectTrigger className="mt-3 h-10 w-full border-2 text-sm font-semibold">
                           <SelectValue />
@@ -671,18 +781,27 @@ export default function Session() {
                       </Select>
                     </motion.div>
                   ) : (
-                    <motion.p
-                      key="idle"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      className="mono-data text-[10px] tracking-[0.25em] text-muted-foreground"
-                    >
-                      {realTrackingMode
-                        ? 'EXERCISE ANALYTICS BEGIN IN CHECKPOINT 8'
-                        : phase === 'analyzing'
-                          ? 'CLASSIFYING MOVEMENT…'
-                          : 'NO MOVEMENT DETECTED YET'}
-                    </motion.p>
+                    realTrackingMode ? (
+                      <motion.div key="select-real-exercise" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                        <p className="mono-data text-[9px] tracking-[0.2em] text-muted-foreground">
+                          SELECT EXERCISE — REAL ANALYSIS SUPPORTS BACK SQUAT
+                        </p>
+                        <Select onValueChange={overrideExercise}>
+                          <SelectTrigger className="mt-3 h-10 w-full border-2 text-sm font-semibold">
+                            <SelectValue placeholder="Choose exercise" />
+                          </SelectTrigger>
+                          <SelectContent className="border-2">
+                            {EXERCISES.map((e) => (
+                              <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </motion.div>
+                    ) : (
+                      <motion.p key="idle" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mono-data text-[10px] tracking-[0.25em] text-muted-foreground">
+                        {phase === 'analyzing' ? 'CLASSIFYING MOVEMENT…' : 'NO MOVEMENT DETECTED YET'}
+                      </motion.p>
+                    )
                   )}
                 </AnimatePresence>
               </div>
@@ -733,12 +852,16 @@ export default function Session() {
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-serifit text-2xl italic leading-none">{exercise.name}</span>
                         <span className="mono-data border-2 border-foreground bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground">
-                          {confidence}%
+                          {realTrackingMode
+                            ? exercise.id === 'squat'
+                              ? `${Math.round(squatAnalysis.snapshot.trackingConfidence * 100)}% TRACKING`
+                              : 'UNSUPPORTED'
+                            : `${confidence}%`}
                         </span>
                       </div>
                       <div className="mt-3 flex flex-wrap gap-2">
                         <span className="mono-data flex items-center gap-1 border-2 border-foreground bg-foreground px-2 py-0.5 text-[10px] tracking-widest text-background">
-                          <Video className="h-3 w-3" /> {angle?.toUpperCase()}
+                          <Video className="h-3 w-3" /> {realTrackingMode ? `${exercise.bestAngle.toUpperCase()} VIEW` : angle?.toUpperCase()}
                         </span>
                         {exercise.primaryMuscles.map((m) => (
                           <span key={m} className="mono-data border-2 border-foreground/30 px-2 py-0.5 text-[10px] tracking-widest text-muted-foreground">
@@ -746,6 +869,9 @@ export default function Session() {
                           </span>
                         ))}
                       </div>
+                      {realTrackingMode && (
+                        <p className="mt-3 text-xs text-muted-foreground">{analysisReadiness}</p>
+                      )}
                       <div className="pt-3">
                         <p className="mono-data mb-1.5 text-[9px] tracking-[0.25em] text-muted-foreground">
                           WRONG LIFT? CORRECT IT:
@@ -765,18 +891,27 @@ export default function Session() {
                       </div>
                     </motion.div>
                   ) : (
-                    <motion.p
-                      key="idle"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      className="mono-data text-[10px] tracking-[0.25em] text-muted-foreground"
-                    >
-                      {realTrackingMode
-                        ? 'EXERCISE ANALYTICS BEGIN IN CHECKPOINT 8'
-                        : phase === 'analyzing'
-                          ? 'CLASSIFYING MOVEMENT…'
-                          : 'NO MOVEMENT DETECTED YET'}
-                    </motion.p>
+                    realTrackingMode ? (
+                      <motion.div key="select-real-exercise" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                        <p className="mono-data text-[9px] tracking-[0.2em] text-muted-foreground">
+                          SELECT EXERCISE — REAL ANALYSIS SUPPORTS BACK SQUAT
+                        </p>
+                        <Select onValueChange={overrideExercise}>
+                          <SelectTrigger className="mt-3 h-10 w-full border-2 font-semibold">
+                            <SelectValue placeholder="Choose exercise" />
+                          </SelectTrigger>
+                          <SelectContent className="border-2">
+                            {EXERCISES.map((e) => (
+                              <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </motion.div>
+                    ) : (
+                      <motion.p key="idle" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mono-data text-[10px] tracking-[0.25em] text-muted-foreground">
+                        {phase === 'analyzing' ? 'CLASSIFYING MOVEMENT…' : 'NO MOVEMENT DETECTED YET'}
+                      </motion.p>
+                    )
                   )}
                 </AnimatePresence>
               </div>
@@ -826,7 +961,7 @@ export default function Session() {
                 )}
                 <p className="mono-data max-w-[130px] text-[9px] leading-relaxed tracking-[0.15em] text-muted-foreground">
                   {realTrackingMode
-                    ? 'EFFORT ESTIMATION BEGINS IN CHECKPOINT 8'
+                    ? 'POSE LANDMARKS DO NOT PROVIDE A DEFENSIBLE EFFORT ESTIMATE'
                     : 'FUSED FROM REP COUNT, REP-SPEED DECAY & FACIAL STRAIN CUES'}
                 </p>
               </div>
@@ -879,19 +1014,28 @@ export default function Session() {
               Set summary — {exercise?.name}
             </DialogTitle>
             <DialogDescription className="mono-data text-[10px] tracking-[0.25em]">
-              {mm}:{ss} — {angle?.toUpperCase()} VIEW — SIMULATED ANALYSIS
+              {realTrackingMode
+                ? `${exercise?.bestAngle.toUpperCase() ?? 'SIDE'} VIEW — REAL POSE ANALYSIS`
+                : `${mm}:${ss} — ${angle?.toUpperCase()} VIEW — SIMULATED ANALYSIS`}
             </DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {[
-              { label: 'REPS', value: reps.length },
-              { label: 'AVG FORM', value: avgForm || '—' },
-              { label: 'PEAK EFFORT', value: reps.length ? Math.max(...reps.map((r) => r.effort)) : '—' },
-              {
-                label: 'AVG TEMPO',
-                value: reps.length ? `${(reps.reduce((a, r) => a + r.tempo, 0) / reps.length).toFixed(1)}s` : '—',
-              },
-            ].map((s, i) => (
+            {(realTrackingMode
+              ? [
+                  { label: 'REPS', value: realReps.length },
+                  { label: 'AVG TEMPO', value: realAverageTempo === null ? '—' : `${realAverageTempo.toFixed(1)}s` },
+                  { label: 'DEPTH OBSERVED', value: realReps.filter((rep) => rep.depth === 'reached').length },
+                  { label: 'OBSERVATIONS', value: realObservationCount },
+                ]
+              : [
+                  { label: 'REPS', value: reps.length },
+                  { label: 'AVG FORM', value: avgForm || '—' },
+                  { label: 'PEAK EFFORT', value: reps.length ? Math.max(...reps.map((r) => r.effort)) : '—' },
+                  {
+                    label: 'AVG TEMPO',
+                    value: reps.length ? `${(reps.reduce((a, r) => a + r.tempo, 0) / reps.length).toFixed(1)}s` : '—',
+                  },
+                ]).map((s, i) => (
               <motion.div
                 key={s.label}
                 initial={{ opacity: 0, y: 12 }}
@@ -907,13 +1051,17 @@ export default function Session() {
           <div className="border-2 border-foreground bg-primary/10 p-4">
             <p className="mono-data text-[10px] font-semibold tracking-[0.25em] text-primary">COACH'S NOTE</p>
             <p className="mt-2 text-sm leading-relaxed text-foreground/80">
-              {avgForm >= 80
-                ? 'Strong set. Technique held up under fatigue — keep this load or add a little next time.'
-                : avgForm >= 65
-                  ? 'Solid work, but form slipped as fatigue built. Consider dropping 5–10% and owning every rep.'
-                  : reps.length
-                    ? 'Form broke down early. Lighter load, slower tempo, and film from the side for cleaner tracking.'
-                    : 'No reps recorded — start a set to get a full breakdown.'}
+              {realTrackingMode
+                ? realReps.length
+                  ? 'This summary contains only completed rep timing, observed depth, and the analyzer’s evidence-based observations.'
+                  : 'No complete squat reps were recorded with sufficient side-view evidence.'
+                : avgForm >= 80
+                  ? 'Strong set. Technique held up under fatigue — keep this load or add a little next time.'
+                  : avgForm >= 65
+                    ? 'Solid work, but form slipped as fatigue built. Consider dropping 5–10% and owning every rep.'
+                    : reps.length
+                      ? 'Form broke down early. Lighter load, slower tempo, and film from the side for cleaner tracking.'
+                      : 'No reps recorded — start a set to get a full breakdown.'}
             </p>
           </div>
           <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
