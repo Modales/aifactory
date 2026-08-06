@@ -341,7 +341,7 @@ function drawLandmarks(canvas: HTMLCanvasElement, state: LandmarkDrawingState): 
   context.clearRect(0, 0, container.width, container.height)
   if (!state.active || !state.pose || !state.videoSize) return
 
-  const displayRect = objectFitRect(container, state.videoSize, 'cover')
+  const displayRect = objectFitRect(container, state.videoSize, 'contain')
   if (!displayRect) return
 
   const landmarks = state.pose.landmarks

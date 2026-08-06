@@ -135,7 +135,7 @@ export class MediaPipePoseEstimator implements PoseEstimator {
           delegate: 'CPU',
         },
         runningMode: 'VIDEO',
-        numPoses: 1,
+        numPoses: 4,
         outputSegmentationMasks: false,
       })
     } catch {

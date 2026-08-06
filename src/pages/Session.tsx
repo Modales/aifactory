@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { AnimatePresence, motion } from 'framer-motion'
+import { SubjectTracker } from '@/lib/pose/subjectTracker'
+import { RealtimeRepCounter } from '@/lib/pose/repCounter'
 import {
   Activity,
   ArrowLeft,
@@ -44,7 +46,6 @@ import { saveSessionToHistory } from '@/lib/workoutStore'
 import {
   EXERCISES,
   angleForExercise,
-  nextAngle,
   simulateRep,
   type CameraAngle,
   type ExerciseDef,
@@ -109,7 +110,7 @@ export default function Session() {
   const realTrackingMode = source === 'camera' || source === 'upload'
   const poseTrackingEnabled =
     realTrackingMode &&
-    phase === 'media' &&
+    (phase === 'media' || phase === 'live' || phase === 'countdown') &&
     (mediaStatus === 'ready' || mediaStatus === 'paused' || mediaStatus === 'ended')
   const poseTracking = usePoseTracking({
     active: poseTrackingEnabled,
@@ -117,7 +118,76 @@ export default function Session() {
     video: videoElement,
   })
   const stopPoseTracking = poseTracking.stop
-  const trackedPose = poseTracking.latestResult?.poses[0] ?? null
+  const subjectTrackerRef = useRef(new SubjectTracker())
+  const repCounterRef = useRef(new RealtimeRepCounter())
+  const detectedPosesCount = poseTracking.latestResult?.poses.length ?? 0
+
+  // Reset subject tracker lock when media source or lifecycle changes
+  useEffect(() => {
+    subjectTrackerRef.current.reset()
+    repCounterRef.current.reset()
+  }, [mediaLifecycleKey, source])
+
+  const trackedSelection = useMemo(() => {
+    const poses = poseTracking.latestResult?.poses
+    if (!poses || poses.length === 0) return { selectedPose: null, selectedIndex: -1 }
+    const timestamp = poseTracking.latestResult?.timestampMs ?? Date.now()
+    return subjectTrackerRef.current.selectPrimarySubject(poses, timestamp)
+  }, [poseTracking.latestResult])
+
+  const trackedPose = trackedSelection.selectedPose
+
+  const pushFeed = useCallback((message: string, severity: FeedItem['severity']) => {
+    setFeed((f) => [{ id: feedIdRef.current++, time: now(), message, severity }, ...f].slice(0, 40))
+  }, [])
+
+  const handleVideoCanvasClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (phase !== 'media' && phase !== 'live') return
+      const poses = poseTracking.latestResult?.poses
+      if (!poses || poses.length === 0) return
+
+      const rect = e.currentTarget.getBoundingClientRect()
+      if (rect.width === 0 || rect.height === 0) return
+
+      const x = (e.clientX - rect.left) / rect.width
+      const y = (e.clientY - rect.top) / rect.height
+
+      const selected = subjectTrackerRef.current.selectPoseByTapPoint(
+        { x, y },
+        poses,
+        poseTracking.latestResult?.timestampMs ?? Date.now(),
+      )
+      if (selected) {
+        pushFeed('Target locked onto clicked athlete on video screen', 'good')
+      }
+    },
+    [phase, poseTracking.latestResult, pushFeed],
+  )
+
+  // Real-time pose rep counting from video keypoints
+  useEffect(() => {
+    if (!trackedPose || !exercise) return
+    if (phase !== 'live' && phase !== 'media') return
+
+    const timestamp = poseTracking.latestResult?.timestampMs ?? Date.now()
+    const aspectRatio = videoSize && videoSize.height > 0 ? videoSize.width / videoSize.height : 1.0
+    const newRep = repCounterRef.current.processFrame(
+      trackedPose,
+      exercise,
+      repsRef.current.length,
+      timestamp,
+      aspectRatio,
+    )
+
+    if (newRep) {
+      repsRef.current = [...repsRef.current, newRep]
+      setReps([...repsRef.current])
+      pushFeed(`Rep #${newRep.rep} complete — ${newRep.cue}`, newRep.severity)
+      audioEngine.playTone(newRep.severity === 'crit' ? 'crit' : newRep.severity === 'warn' ? 'warn' : 'rep')
+      audioEngine.speakCue(newRep.cue, newRep.severity === 'crit')
+    }
+  }, [trackedPose, exercise, phase, poseTracking.latestResult, pushFeed])
 
   // Network online/offline event monitoring
   useEffect(() => {
@@ -129,10 +199,6 @@ export default function Session() {
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
     }
-  }, [])
-
-  const pushFeed = useCallback((message: string, severity: FeedItem['severity']) => {
-    setFeed((f) => [{ id: feedIdRef.current++, time: now(), message, severity }, ...f].slice(0, 40))
   }, [])
 
   const clearTimers = useCallback(() => {
@@ -170,15 +236,6 @@ export default function Session() {
           pushFeed(`Effort at ${rep.effort}% — velocity decay & form degradation detected`, 'info')
         }
 
-        // Mid-set camera angle re-lock logic
-        if (nextIndex > 1 && (nextIndex - 1) % 3 === 0) {
-          const next = nextAngle(ex, angleRef.current)
-          if (next !== angleRef.current) {
-            angleRef.current = next
-            setAngle(next)
-            pushFeed(`Camera angle switched — tracking re-locked (${next} view)`, 'info')
-          }
-        }
         scheduleNextRep(ex)
       }, delay)
     },
@@ -195,9 +252,11 @@ export default function Session() {
       pushFeed('Set started — rep counting live', 'info')
       audioEngine.playTone('go')
       clockRef.current = window.setInterval(() => setElapsed((e) => e + 1), 1000)
-      scheduleNextRep(ex)
+      if (demoActive) {
+        scheduleNextRep(ex)
+      }
     },
-    [pushFeed, scheduleNextRep],
+    [pushFeed, scheduleNextRep, demoActive],
   )
 
   const startCountdown = useCallback(
@@ -224,9 +283,9 @@ export default function Session() {
   const beginAnalysis = useCallback(
     (picked?: ExerciseDef) => {
       const selected = EXERCISES.find((e) => e.id === selectedExerciseId)
-      const ex = picked ?? selected ?? EXERCISES[0]
+      const ex = picked ?? selected ?? exercise ?? EXERCISES[0]
       setPhase('analyzing')
-      pushFeed('Pose model initializing — tracking 17 keypoints…', 'info')
+      pushFeed('Pose model initializing — tracking keypoints…', 'info')
 
       window.setTimeout(() => {
         setExercise(ex)
@@ -237,7 +296,7 @@ export default function Session() {
         startCountdown(ex)
       }, 2200)
     },
-    [selectedExerciseId, pushFeed, startCountdown],
+    [selectedExerciseId, exercise, pushFeed, startCountdown],
   )
 
   const clearAnalysisData = useCallback(() => {
@@ -258,6 +317,10 @@ export default function Session() {
     stopPoseTracking()
     clearAnalysisData()
     setDemoActive(false)
+    const selected = EXERCISES.find((e) => e.id === selectedExerciseId) || EXERCISES[0]
+    setExercise(selected)
+    setAngle(angleForExercise(selected))
+    setConfidence(94)
     setPhase('media')
     void openCamera()
   }
@@ -266,6 +329,10 @@ export default function Session() {
     stopPoseTracking()
     clearAnalysisData()
     setDemoActive(false)
+    const selected = EXERCISES.find((e) => e.id === selectedExerciseId) || EXERCISES[0]
+    setExercise(selected)
+    setAngle(angleForExercise(selected))
+    setConfidence(94)
     setPhase('media')
     openUpload(file)
   }
@@ -371,34 +438,34 @@ export default function Session() {
   const statTiles = [
     {
       label: 'REPS',
-      value: realTrackingMode ? '—' : reps.length,
-      key: realTrackingMode ? 'unavailable' : reps.length,
-      accent: !realTrackingMode,
+      value: reps.length,
+      key: reps.length,
+      accent: true,
     },
     {
       label: 'S / REP',
-      value: realTrackingMode ? '—' : latest ? latest.tempo.toFixed(1) : '—',
-      key: realTrackingMode ? 'unavailable' : (latest?.tempo ?? 0),
+      value: latest ? `${latest.tempo.toFixed(1)}s` : '—',
+      key: latest?.tempo ?? 0,
       accent: false,
     },
     {
       label: 'FORM',
-      value: realTrackingMode ? '—' : avgForm || '—',
-      key: realTrackingMode ? 'unavailable' : avgForm,
+      value: avgForm ? `${avgForm}%` : '—',
+      key: avgForm,
       accent: false,
     },
   ]
 
   const chartEl = (
     <div className="p-3">
-      {realTrackingMode ? (
+      {reps.length > 0 ? (
+        <VelocityAngleChart reps={reps} targetAngle={exercise?.id === 'squat' ? 110 : 90} />
+      ) : (
         <div className="flex h-48 items-center justify-center lg:h-64">
           <p className="mono-data text-[10px] tracking-[0.25em] text-muted-foreground">
-            REP ANALYTICS BEGIN IN CHECKPOINT 8
+            PERFORM REPS IN FRONT OF CAMERA OR PLAY VIDEO TO GENERATE CHART
           </p>
         </div>
-      ) : (
-        <VelocityAngleChart reps={reps} targetAngle={exercise?.id === 'squat' ? 110 : 90} />
       )}
     </div>
   )
@@ -460,7 +527,12 @@ export default function Session() {
             )}
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <Link to="/history">
+              <Button size="sm" variant="outline" className="border-2 border-foreground font-mono text-xs font-bold">
+                PAST WORKOUTS
+              </Button>
+            </Link>
             <SettingsModal />
             {phase === 'ended' && !summaryOpen && (
               <Button
@@ -494,7 +566,29 @@ export default function Session() {
         <div className="lg:grid lg:grid-cols-3 lg:gap-6">
           {/* Video panel */}
           <div className="lg:col-span-2">
-            <div className={`hard-shadow relative border-2 border-foreground bg-foreground ${phase === 'setup' ? 'min-h-[520px]' : 'aspect-[4/5] sm:aspect-video'}`}>
+            <div
+              onClick={handleVideoCanvasClick}
+              className={`hard-shadow relative border-2 border-foreground bg-black cursor-pointer overflow-hidden ${
+                phase === 'setup'
+                  ? 'min-h-[520px]'
+                  : videoSize && videoSize.height > videoSize.width
+                    ? 'aspect-[9/16] max-h-[75vh] mx-auto'
+                    : 'aspect-[4/5] sm:aspect-video'
+              }`}
+            >
+              {realTrackingMode && (phase === 'media' || phase === 'live') && (
+                <div
+                  onClick={handleVideoCanvasClick}
+                  className="absolute inset-0 z-25 cursor-pointer"
+                  title="Click anywhere on screen to lock target athlete"
+                />
+              )}
+              {detectedPosesCount > 1 && (phase === 'media' || phase === 'live') && (
+                <div className="mono-data absolute bottom-4 left-4 z-30 pointer-events-none flex items-center gap-1.5 border-2 border-foreground bg-background/95 px-3 py-1.5 text-[10px] font-bold tracking-wider text-foreground hard-shadow-sm backdrop-blur">
+                  <ScanFace className="h-3.5 w-3.5 text-primary shrink-0" />
+                  <span>CLICK OR TAP ANY ATHLETE ON SCREEN TO LOCK TARGET</span>
+                </div>
+              )}
               {realTrackingMode && (
                 <video
                   ref={videoRef}
@@ -502,7 +596,7 @@ export default function Session() {
                   playsInline
                   muted
                   controls={source === 'upload'}
-                  className="h-full w-full object-cover"
+                  className="h-full w-full object-contain bg-black"
                 />
               )}
               {source === 'demo' && <div className="bg-grid absolute inset-0 bg-background" />}
@@ -645,6 +739,9 @@ export default function Session() {
                         {trackingDescription}
                       </p>
                       <div className="mt-3 flex flex-wrap gap-2">
+                        <Button size="sm" className="border-2 border-foreground bg-primary font-bold text-primary-foreground hover:bg-primary/90" onClick={() => beginAnalysis(exercise || undefined)}>
+                          <Zap className="mr-1.5 h-4 w-4" /> START TRACKING &amp; REPS
+                        </Button>
                         <Button size="sm" variant="outline" onClick={reset}>
                           CHOOSE ANOTHER SOURCE
                         </Button>
@@ -716,6 +813,59 @@ export default function Session() {
                 videoSize={videoSize}
                 mirrored={source === 'camera' && CAMERA_VIDEO_MIRRORED}
               />
+
+              {/* Realtime Developer Debug Panel & Telemetry Inspector */}
+              {realTrackingMode && (phase === 'live' || phase === 'media') && (
+                <div className="absolute left-3 top-3 z-30 flex max-w-sm flex-col gap-1 border-2 border-foreground bg-background/95 p-3 font-mono text-[9px] text-foreground hard-shadow-sm backdrop-blur">
+                  <div className="flex items-center justify-between border-b-2 border-foreground/30 pb-1.5 font-bold text-primary">
+                    <span className="flex items-center gap-1">
+                      <Zap className="h-3.5 w-3.5 text-primary" /> POSE DETECTOR DEBUGGER
+                    </span>
+                    <span className="border border-foreground bg-primary/20 px-1 text-[8px]">
+                      FRAME #{repCounterRef.current.getDebugState().frameNumber}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 pt-1 text-[9px]">
+                    <div>EXERCISE: <span className="font-bold text-primary">{exercise?.name.toUpperCase()}</span></div>
+                    <div>ARMED: <span className={repCounterRef.current.getDebugState().isArmed ? 'font-bold text-emerald-600' : 'font-bold text-amber-600'}>{repCounterRef.current.getDebugState().isArmed ? 'YES (ARMED)' : 'NO (DISARMED)'}</span></div>
+
+                    <div>STATE: <span className="font-bold text-emerald-600">{repCounterRef.current.getDebugState().currentState}</span></div>
+                    <div>PREV STATE: <span className="text-muted-foreground">{repCounterRef.current.getDebugState().previousState}</span></div>
+
+                    <div>RAW ANGLE: <span className="font-bold text-foreground">{repCounterRef.current.getDebugState().rawAngle ? `${repCounterRef.current.getDebugState().rawAngle}°` : '—'}</span></div>
+                    <div>SMOOTHED: <span className="font-bold text-emerald-600">{repCounterRef.current.getDebugState().smoothedAngle ? `${repCounterRef.current.getDebugState().smoothedAngle}°` : '—'}</span></div>
+
+                    <div>TOP REF: <span className="font-bold">{repCounterRef.current.getDebugState().topAngle}°</span></div>
+                    <div>BOTTOM THRESH: <span className="font-bold">{repCounterRef.current.getDebugState().bottomThreshold}°</span></div>
+
+                    <div>REPS COUNTED: <span className="font-bold text-primary text-xs">{reps.length}</span></div>
+                    <div>CONFIDENCE: <span className="font-bold text-foreground">{confidence}%</span></div>
+                  </div>
+
+                  <div className="mt-1 border-t border-foreground/20 pt-1 text-[8px]">
+                    <div className="font-bold text-amber-700">LAST REASON:</div>
+                    <div className="text-foreground">{repCounterRef.current.getDebugState().lastTransitionReason}</div>
+                  </div>
+
+                  <div className="border-t border-foreground/20 pt-1 text-[8px]">
+                    <div className="font-bold text-muted-foreground">LAST FAILED BLOCKER:</div>
+                    <div className="text-amber-800">{repCounterRef.current.getDebugState().lastFailedCondition}</div>
+                  </div>
+
+                  {/* Transition History Log Stream */}
+                  <div className="mt-1 border-t border-foreground/20 pt-1">
+                    <div className="font-bold text-[8px] text-primary mb-0.5">TRANSITION HISTORY:</div>
+                    <div className="max-h-20 overflow-y-auto space-y-0.5 text-[8px]">
+                      {repCounterRef.current.getDebugState().recentLogs.map((log, idx) => (
+                        <div key={idx} className="border-l-2 border-primary pl-1 text-[8px]">
+                          <span className="text-muted-foreground">F#{log.frameNumber}</span> {log.previousState} &rarr; <span className="font-bold text-emerald-700">{log.newState}</span> ({log.smoothedAngle}°)
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Viewfinder Overlay Furniture */}
               {phase === 'live' && (

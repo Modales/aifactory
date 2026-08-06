@@ -14,7 +14,9 @@ import {
 import { Button } from '@/components/ui/button'
 import PoseCanvas from '@/components/PoseCanvas'
 import EffortDial, { zoneFor } from '@/components/EffortDial'
+import OnboardingWizard from '@/components/OnboardingWizard'
 import { EXERCISES } from '@/lib/simulation'
+import { getStoredOnboarding } from '@/lib/workoutStore'
 
 const EASE = [0.22, 1, 0.36, 1] as const
 
@@ -152,20 +154,44 @@ export default function Home() {
   const [reps, setReps] = useState(7)
   const [slow, setSlow] = useState(24)
   const [strain, setStrain] = useState(46)
+  const [showOnboarding, setShowOnboarding] = useState(false)
   const demoEffort = Math.max(3, Math.min(99, Math.round(6 + reps * 5.6 + slow * 0.62 + strain * 0.3)))
   const zone = zoneFor(demoEffort)
+
+  useEffect(() => {
+    const onboarding = getStoredOnboarding()
+    if (!onboarding.completed) {
+      setShowOnboarding(true)
+    }
+  }, [])
 
   return (
     <div className="min-h-screen touch-manipulation bg-background pb-20 lg:pb-0">
       <div className="noise" />
 
+      {/* Onboarding Wizard Modal */}
+      <OnboardingWizard
+        isOpen={showOnboarding}
+        onClose={() => setShowOnboarding(false)}
+      />
+
       {/* ── Header ─────────────────────────────────────────── */}
       <header className="sticky top-0 z-40 border-b-2 border-foreground bg-background/90 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
           <Link to="/" className="text-xl font-bold tracking-tight">
-            FORMFIT<span className="text-primary">*</span>
+            AI FACTORY<span className="text-primary">*</span>
           </Link>
-          <nav className="hidden items-center gap-8 md:flex">
+          <nav className="hidden items-center gap-6 md:flex">
+            <button
+              type="button"
+              onClick={() => setShowOnboarding(true)}
+              className="underline-sweep mono-data text-xs tracking-[0.2em] font-bold text-primary hover:text-primary/80"
+            >
+              ONBOARDING WIZARD
+            </button>
+            <Link to="/history" className="underline-sweep mono-data text-xs tracking-[0.2em] font-bold text-foreground">
+              PAST WORKOUTS
+            </Link>
             {[
               ['The system', '#system'],
               ['Effort engine', '#effort'],
@@ -176,11 +202,26 @@ export default function Home() {
               </a>
             ))}
           </nav>
-          <Link to="/session">
-            <Button className="hard-shadow-sm border-2 border-foreground font-bold transition-transform hover:-translate-y-0.5">
-              START A SET <ArrowRight className="ml-1 h-4 w-4" />
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setShowOnboarding(true)}
+              className="border-2 border-foreground font-mono text-xs font-bold"
+            >
+              ONBOARDING
             </Button>
-          </Link>
+            <Link to="/history" className="md:hidden">
+              <Button size="sm" variant="outline" className="border-2 border-foreground font-bold text-xs">
+                PAST WORKOUTS
+              </Button>
+            </Link>
+            <Link to="/session">
+              <Button className="hard-shadow-sm border-2 border-foreground font-bold transition-transform hover:-translate-y-0.5">
+                START A SET <ArrowRight className="ml-1 h-4 w-4" />
+              </Button>
+            </Link>
+          </div>
         </div>
       </header>
 

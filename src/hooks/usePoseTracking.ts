@@ -7,7 +7,7 @@ import {
   type PoseTrackingStatus,
 } from '@/lib/pose/types'
 
-const TARGET_INFERENCE_FPS = 12
+const TARGET_INFERENCE_FPS = 25
 const MIN_INFERENCE_INTERVAL_MS = 1000 / TARGET_INFERENCE_FPS
 
 interface PoseTrackingOptions {
