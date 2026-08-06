@@ -38,9 +38,9 @@ export interface FormToleranceResult {
 }
 
 const TOLERANCE_TABLE: Record<FormToleranceMode, { knee: number; hip: number; back: number }> = {
-  Strict: { knee: 8, hip: 10, back: 8 },
-  Moderate: { knee: 12, hip: 15, back: 12 },
-  Lenient: { knee: 16, hip: 20, back: 16 },
+  Strict: { knee: 10, hip: 12, back: 10 },
+  Moderate: { knee: 14, hip: 17, back: 14 },
+  Lenient: { knee: 18, hip: 22, back: 18 },
 }
 
 export function normalizeFormToleranceMode(mode: FormSensitivityMode | FormToleranceMode): FormToleranceMode {
@@ -95,6 +95,78 @@ export function computeJointAngle(a: Vector2D, vertex: Vector2D, b: Vector2D): n
 
   const cosine = Math.max(-1, Math.min(1, dot / (magnitude1 * magnitude2)))
   return (Math.acos(cosine) * 180) / Math.PI
+}
+
+export type FlawDirection = 'under' | 'over'
+
+/**
+ * Coaching phrasing for a joint outside its target band, in two tiers: `mild`
+ * for a small miss, `severe` for a large one. Deliberately exercise- and
+ * joint-agnostic (no claims like "you're squatting a good morning") since the
+ * angle geometry alone doesn't tell us the movement pattern behind a miss —
+ * the {label} placeholder keeps each line grounded in the joint's own name.
+ * Plain coaching language only: the lifter sees a key message, not the raw
+ * degree numbers behind it (those still drive which line gets picked, via
+ * describeJointFlaw's direction/magnitude classification below).
+ */
+const FLAW_TEMPLATES: Record<FlawDirection, { mild: string[]; severe: string[] }> = {
+  under: {
+    mild: [
+      '{label} just short of target — a little more range',
+      'Close on {label} — ease a touch further',
+      '{label} a bit shy of target',
+    ],
+    severe: [
+      '{label} well short of target — chase the full range',
+      '{label} cutting it short — go noticeably further',
+      'Stopping well before target on {label}',
+    ],
+  },
+  over: {
+    mild: [
+      '{label} just past target — ease back slightly',
+      'Slightly over on {label} — back off a touch',
+      '{label} a hair beyond target',
+    ],
+    severe: [
+      '{label} well past target — reduce the motion',
+      '{label} overshooting — reel it back in',
+      'Well beyond target on {label}',
+    ],
+  },
+}
+
+/** Deviation past the edge of the band, past which a miss reads as "severe" rather than "mild". */
+const SEVERE_OVERSHOOT_RATIO = 0.6
+
+/**
+ * Builds a varied, magnitude-aware coaching line for a joint that landed
+ * outside its target band — a single fixed sentence per (joint, direction)
+ * pair reads as a broken record, so this picks from a small pool of plain-
+ * language phrasings instead. `variantSeed` (e.g. the rep number) rotates
+ * through the pool so consecutive reps with the same flaw don't read
+ * identically. Returns null when the joint is in range.
+ */
+export function describeJointFlaw({
+  range,
+  value,
+  variantSeed,
+}: {
+  range: AngleRange
+  value: number
+  variantSeed: number
+}): string | null {
+  if (value >= range.min && value <= range.max) return null
+
+  const direction: FlawDirection = value < range.min ? 'under' : 'over'
+  const halfRange = Math.max(1, (range.max - range.min) / 2)
+  const overshoot = direction === 'under' ? range.min - value : value - range.max
+  const tier = overshoot / halfRange >= SEVERE_OVERSHOOT_RATIO ? 'severe' : 'mild'
+
+  const pool = FLAW_TEMPLATES[direction][tier]
+  const template = pool[((variantSeed % pool.length) + pool.length) % pool.length]
+
+  return template.replaceAll('{label}', range.label)
 }
 
 function scoreJointAgainstRange(
@@ -242,7 +314,7 @@ export function buildRepAnalysis({
   exerciseId: ExerciseId
   mode: FormToleranceMode
   speedDecayPct: number
-  facialColorShiftPct: number
+  facialColorShiftPct?: number | null
   formScore: number
 } & JointAngles): {
   formResult: FormToleranceResult
@@ -281,14 +353,32 @@ export function buildRepAnalysis({
   }
 }
 
+/** Window size for the baseline/recent averages in {@link computeSpeedDecay}. */
+const SPEED_DECAY_WINDOW = 3
+
+function average(values: number[]): number {
+  return values.reduce((sum, value) => sum + value, 0) / values.length
+}
+
+/**
+ * Compares a lifter's recent rep velocity against their early-set baseline.
+ *
+ * Both ends are averaged over a short window (rather than read from a single
+ * rep) so one noisy or mistimed rep doesn't swing the decay reading — a single
+ * bad "last" sample used to spike this to a false decay, and a single unlucky
+ * first rep used to permanently mis-anchor the baseline for the whole set.
+ */
 export function computeSpeedDecay(velocities: number[]): number {
   if (velocities.length < 2) return 0
 
-  const first = velocities[0]
-  const last = velocities[velocities.length - 1]
-  if (first <= 0) return 0
+  const baselineSize = Math.min(SPEED_DECAY_WINDOW, Math.max(1, Math.floor(velocities.length / 2)))
+  const recentSize = Math.min(SPEED_DECAY_WINDOW, velocities.length - baselineSize)
 
-  return Math.max(0, Math.min(100, ((first - last) / first) * 100))
+  const baseline = average(velocities.slice(0, baselineSize))
+  const recent = average(velocities.slice(-recentSize))
+  if (baseline <= 0) return 0
+
+  return Math.max(0, Math.min(100, ((baseline - recent) / baseline) * 100))
 }
 
 export function computeFacialColorShift(
@@ -305,27 +395,100 @@ export function computeFacialColorShift(
   return Math.max(0, Math.min(100, (rgbDistance / maxDistance) * 100))
 }
 
+/**
+ * Base fusion weights, calibrated assuming all three signals are present.
+ * When a signal is unavailable it must be dropped and the rest renormalized
+ * over their own total — never substituted with a raw 0, which understates
+ * effort by exactly that signal's weight (e.g. capping the score at 65 when
+ * facial data is missing, regardless of how hard the lifter is working).
+ */
+const EFFORT_WEIGHTS = {
+  speedDecay: 0.45,
+  facialColorShift: 0.35,
+  formLoss: 0.2,
+} as const
+
+function clampPct(value: number): number {
+  return Math.max(0, Math.min(100, value))
+}
+
 export function computeEffortIndex({
   speedDecayPct,
   facialColorShiftPct,
   formScore,
 }: {
   speedDecayPct: number
-  facialColorShiftPct: number
+  /** Omit (or pass null/undefined) when no facial signal is available — do not pass 0 as a stand-in. */
+  facialColorShiftPct?: number | null
   formScore: number
 }): { value: number; level: 'LOW' | 'MODERATE' | 'HIGH'; confidence: number } {
-  const weighted =
-    0.45 * Math.max(0, Math.min(100, speedDecayPct)) +
-    0.35 * Math.max(0, Math.min(100, facialColorShiftPct)) +
-    0.2 * Math.max(0, Math.min(100, 100 - formScore))
+  const hasFacialSignal = facialColorShiftPct !== undefined && facialColorShiftPct !== null
+
+  const signals = [
+    { weight: EFFORT_WEIGHTS.speedDecay, pct: clampPct(speedDecayPct) },
+    { weight: EFFORT_WEIGHTS.formLoss, pct: clampPct(100 - formScore) },
+    ...(hasFacialSignal ? [{ weight: EFFORT_WEIGHTS.facialColorShift, pct: clampPct(facialColorShiftPct) }] : []),
+  ]
+
+  const totalWeight = signals.reduce((sum, signal) => sum + signal.weight, 0)
+  const weighted = signals.reduce((sum, signal) => sum + (signal.weight / totalWeight) * signal.pct, 0)
 
   const value = Math.max(0, Math.min(100, Math.round(weighted)))
-
-  let level: 'LOW' | 'MODERATE' | 'HIGH' = 'LOW'
-  if (value >= 60) level = 'HIGH'
-  else if (value >= 35) level = 'MODERATE'
-
   const confidence = Math.max(0, Math.min(100, Math.round((value + (100 - formScore)) / 2)))
 
-  return { value, level, confidence }
+  return { value, level: effortLevelForValue(value), confidence }
+}
+
+/** Shared value→band mapping, so any effort score (live or per-rep) reads the same way. */
+export function effortLevelForValue(value: number): 'LOW' | 'MODERATE' | 'HIGH' {
+  if (value >= 60) return 'HIGH'
+  if (value >= 35) return 'MODERATE'
+  return 'LOW'
+}
+
+export type FormSeverity = FormToleranceResult['severity']
+
+const SEVERITY_RANK: Record<FormSeverity, number> = { good: 0, warn: 1, crit: 2 }
+
+/** Minimum time an escalated (warn/crit) severity must persist before the HUD commits to it. */
+export const COACHING_HYSTERESIS_MS = 500
+
+export interface CoachingHysteresisState {
+  /** The severity currently shown to the lifter. */
+  stableSeverity: FormSeverity
+  /** A worse severity that's been observed but hasn't persisted long enough yet, if any. */
+  pendingSeverity: FormSeverity | null
+  pendingSinceMs: number | null
+}
+
+export function initCoachingHysteresis(initialSeverity: FormSeverity = 'good'): CoachingHysteresisState {
+  return { stableSeverity: initialSeverity, pendingSeverity: null, pendingSinceMs: null }
+}
+
+/**
+ * Debounces flicker in per-frame form severity coming from noisy pose landmarks.
+ *
+ * Recovering to a better (or equal) severity is applied immediately, so corrected
+ * form is reflected right away. Escalating to a worse severity only commits once
+ * it has persisted continuously for `COACHING_HYSTERESIS_MS` — a single noisy
+ * frame that dips out of tolerance and back no longer flips the HUD into a warning.
+ */
+export function stabilizeCoachingSeverity(
+  state: CoachingHysteresisState,
+  candidateSeverity: FormSeverity,
+  nowMs: number,
+): CoachingHysteresisState {
+  if (SEVERITY_RANK[candidateSeverity] <= SEVERITY_RANK[state.stableSeverity]) {
+    return { stableSeverity: candidateSeverity, pendingSeverity: null, pendingSinceMs: null }
+  }
+
+  if (state.pendingSeverity !== candidateSeverity) {
+    return { ...state, pendingSeverity: candidateSeverity, pendingSinceMs: nowMs }
+  }
+
+  if (state.pendingSinceMs !== null && nowMs - state.pendingSinceMs >= COACHING_HYSTERESIS_MS) {
+    return { stableSeverity: candidateSeverity, pendingSeverity: null, pendingSinceMs: null }
+  }
+
+  return state
 }

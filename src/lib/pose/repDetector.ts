@@ -1,6 +1,8 @@
 import {
   EXERCISE_ANGLE_TARGETS,
+  computeEffortIndex,
   computeSpeedDecay,
+  describeJointFlaw,
   type AngleRange,
   type ExerciseBiomechanicsTargets,
   type ExerciseId,
@@ -48,8 +50,10 @@ function isExerciseId(id: string): id is ExerciseId {
  *
  * Inside the band the score tapers from 100 at the ideal angle down to 85 at the
  * edges; outside it falls off proportionally to how far past the edge the lifter is.
+ * `variantSeed` rotates the flaw phrasing (see describeJointFlaw) so the same
+ * miss doesn't read as an identical sentence rep after rep.
  */
-function scoreJoint(value: number, range: AngleRange, joint: ScoredJoint): JointVerdict {
+function scoreJoint(value: number, range: AngleRange, joint: ScoredJoint, variantSeed: number): JointVerdict {
   const halfRange = Math.max(1, (range.max - range.min) / 2)
 
   if (value >= range.min && value <= range.max) {
@@ -59,8 +63,7 @@ function scoreJoint(value: number, range: AngleRange, joint: ScoredJoint): Joint
 
   const overshoot = value < range.min ? range.min - value : value - range.max
   const score = 85 - clamp(overshoot / halfRange, 0, 1) * 70
-  const direction = value < range.min ? 'under' : 'over'
-  return { joint, label: range.label, score, flaw: `${range.label} ${direction} target` }
+  return { joint, label: range.label, score, flaw: describeJointFlaw({ range, value, variantSeed }) }
 }
 
 export interface RepDetectorSnapshot {
@@ -214,18 +217,14 @@ export class RepDetector {
     const travelled = Math.max(0, topKey - bottom.key)
     this.bestRangeDeg = Math.max(this.bestRangeDeg, travelled)
 
-    const { formScore, flaws } = this.scoreForm(bottom.angles, travelled)
+    const { formScore, flaws } = this.scoreForm(bottom.angles, travelled, repIndex)
     const velocity = +(travelled / Math.max(0.1, concentricTime)).toFixed(1)
 
     // Effort normally fuses rep-speed decay, facial colour shift and form loss.
-    // No facial signal exists in the browser pipeline, so its weight is dropped
-    // and the two remaining terms are renormalized over their own total.
+    // No facial signal exists in the browser pipeline, so it's omitted here and
+    // computeEffortIndex renormalizes the remaining two terms over their own total.
     const speedDecay = computeSpeedDecay([...this.velocities, velocity])
-    const effort = clamp(
-      Math.round((0.45 * speedDecay + 0.2 * (100 - formScore)) / 0.65),
-      0,
-      100,
-    )
+    const effort = computeEffortIndex({ speedDecayPct: speedDecay, formScore }).value
 
     const severity: RepData['severity'] =
       formScore < 60 || flaws.length >= 2 ? 'crit' : formScore < 82 || flaws.length ? 'warn' : 'good'
@@ -252,11 +251,17 @@ export class RepDetector {
    * targets (bench, curl) are scored on how much of their best range of motion
    * the rep reached instead.
    */
-  private scoreForm(angles: FrameAngles, travelled: number): { formScore: number; flaws: string[] } {
+  private scoreForm(
+    angles: FrameAngles,
+    travelled: number,
+    repIndex: number,
+  ): { formScore: number; flaws: string[] } {
     const verdicts: JointVerdict[] = []
-    if (this.targets.knee) verdicts.push(scoreJoint(angles.knee, this.targets.knee, 'knee'))
-    if (this.targets.hip) verdicts.push(scoreJoint(angles.hip, this.targets.hip, 'hip'))
-    if (this.targets.back) verdicts.push(scoreJoint(angles.back, this.targets.back, 'back'))
+    // Offset the seed per joint so a rep with multiple flaws doesn't pick the
+    // same phrasing slot for each one.
+    if (this.targets.knee) verdicts.push(scoreJoint(angles.knee, this.targets.knee, 'knee', repIndex))
+    if (this.targets.hip) verdicts.push(scoreJoint(angles.hip, this.targets.hip, 'hip', repIndex + 1))
+    if (this.targets.back) verdicts.push(scoreJoint(angles.back, this.targets.back, 'back', repIndex + 2))
 
     if (!verdicts.length) {
       const reference = Math.max(this.bestRangeDeg, travelled, 1)

@@ -41,7 +41,15 @@ import { usePoseTelemetry } from '@/hooks/usePoseTelemetry'
 import VelocityAngleChart from '@/components/VelocityAngleChart'
 import ExerciseSummaryTable from '@/components/ExerciseSummaryTable'
 import SettingsModal from '@/components/SettingsModal'
-import { buildRepAnalysis, normalizeFormToleranceMode, type ExerciseId } from '@/lib/biomechanics_v2'
+import {
+  effortLevelForValue,
+  evaluateExerciseFormTolerance,
+  initCoachingHysteresis,
+  normalizeFormToleranceMode,
+  stabilizeCoachingSeverity,
+  type CoachingHysteresisState,
+  type ExerciseId,
+} from '@/lib/biomechanics_v2'
 import { extractFrameAngles } from '@/lib/pose/jointAngles'
 import { audioEngine } from '@/lib/audioEngine'
 import { saveSessionToHistory, useUserSettings } from '@/lib/workoutStore'
@@ -407,7 +415,9 @@ export default function Session() {
   const effort = latest?.effort ?? 0
   const zone = zoneFor(effort)
   const toleranceMode = normalizeFormToleranceMode(settings.sensitivity)
-  const liveFrameMetrics = useMemo(() => {
+
+  // The raw, unstabilized read of this frame's joint angles and form status.
+  const rawLiveFrame = useMemo(() => {
     if (!realTrackingMode || !exercise || !poseTracking.latestResult?.poses[0] || !videoSize) return null
 
     const pose = poseTracking.latestResult.poses[0]
@@ -415,23 +425,47 @@ export default function Session() {
     const angles = extractFrameAngles(pose.landmarks, aspectRatio)
     if (!angles) return null
 
-    const formAnalysis = buildRepAnalysis({
+    const formResult = evaluateExerciseFormTolerance({
       exerciseId: exercise.id as ExerciseId,
       mode: toleranceMode,
       knee_angle: angles.knee,
       hip_angle: angles.hip,
       back_angle: angles.back,
-      speedDecayPct: latest ? Math.min(100, Math.max(0, (latest.velocity / Math.max(0.1, latest.tempo)) * 18)) : 12,
-      facialColorShiftPct: 0,
-      formScore: latest?.formScore ?? 75,
     })
 
+    return { angles, formResult, timestampMs: poseTracking.latestResult.timestampMs }
+  }, [exercise, poseTracking.latestResult, realTrackingMode, toleranceMode, videoSize])
+
+  // Debounces the live per-frame form status against pose-landmark jitter: an
+  // escalation to warn/crit must persist for COACHING_HYSTERESIS_MS before the
+  // HUD shows it, so a single noisy frame doesn't flip it into a false alarm.
+  // Advanced during render (guarded by the processedFrame check below) rather
+  // than in an effect, per React's "adjusting state when a prop changes"
+  // pattern — this is a same-render state transition, not an external effect.
+  const [coachingState, setCoachingState] = useState<CoachingHysteresisState>(initCoachingHysteresis)
+  const [displayedFormResult, setDisplayedFormResult] = useState<
+    ReturnType<typeof evaluateExerciseFormTolerance> | null
+  >(null)
+  const [processedFrame, setProcessedFrame] = useState(rawLiveFrame)
+  if (rawLiveFrame !== processedFrame) {
+    setProcessedFrame(rawLiveFrame)
+    if (rawLiveFrame) {
+      const next = stabilizeCoachingSeverity(coachingState, rawLiveFrame.formResult.severity, rawLiveFrame.timestampMs)
+      setCoachingState(next)
+      const committed = next.pendingSeverity === null && next.stableSeverity === rawLiveFrame.formResult.severity
+      if (committed) setDisplayedFormResult(rawLiveFrame.formResult)
+    }
+  }
+
+  const liveFrameMetrics = useMemo(() => {
+    if (!rawLiveFrame) return null
     return {
-      angles,
-      formAnalysis,
+      angles: rawLiveFrame.angles,
+      formResult: displayedFormResult ?? rawLiveFrame.formResult,
+      effortLevel: effortLevelForValue(latest?.effort ?? 0),
       toleranceMode,
     }
-  }, [exercise, latest, poseTracking.latestResult, realTrackingMode, toleranceMode, videoSize])
+  }, [displayedFormResult, latest, rawLiveFrame, toleranceMode])
   /** True whenever reps are being scored, whether simulated or tracked from video. */
   const setInProgress = phase === 'live' || (realTrackingMode && phase === 'media')
   const analysisLive = setInProgress || phase === 'ended'
@@ -640,10 +674,10 @@ export default function Session() {
                   </div>
                   <div className="mt-2 flex items-center justify-between gap-2 border-t-2 border-foreground pt-2 text-[9px]">
                     <span className="mono-data font-semibold tracking-[0.15em] text-muted-foreground">
-                      FORM: {liveFrameMetrics.formAnalysis.formResult.status}
+                      FORM: {liveFrameMetrics.formResult.status}
                     </span>
                     <span className="mono-data font-semibold tracking-[0.15em] text-primary">
-                      EFFORT: {liveFrameMetrics.formAnalysis.effortResult.level}
+                      EFFORT: {liveFrameMetrics.effortLevel}
                     </span>
                   </div>
                 </div>

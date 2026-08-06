@@ -133,6 +133,24 @@ describe('RepDetector', () => {
     expect(shallowRep.flaws?.length).toBeGreaterThan(0)
   })
 
+  it('varies the coaching cue across consecutive reps with the same flaw, instead of repeating one sentence', () => {
+    const detector = new RepDetector(SQUAT)
+    let cursor = 0
+    const cues: string[] = []
+
+    for (let i = 0; i < 4; i += 1) {
+      // Consistently shallow bottom (140°, well outside the 85-105° knee band) so every rep flaws the same way.
+      const cycle = pushRep(detector, cursor, { bottom: 140 })
+      cursor = cycle.endMs
+      cues.push(...cycle.reps.map((rep) => rep.cue))
+    }
+
+    expect(cues.length).toBeGreaterThan(0)
+    expect(new Set(cues).size).toBeGreaterThan(1)
+    // The cue should reflect the actual angle miss, not the old flat template.
+    expect(cues[0]).not.toBe('Knee depth over target')
+  })
+
   it('numbers reps consecutively across a set', () => {
     const detector = new RepDetector(SQUAT)
     let cursor = 0
