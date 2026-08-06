@@ -38,6 +38,7 @@ import { useMediaSource, type MediaSourceKind } from '@/hooks/useMediaSource'
 import { usePoseTracking } from '@/hooks/usePoseTracking'
 import { useRepAnalysis, type RepAnalysisSample } from '@/hooks/useRepAnalysis'
 import { usePoseTelemetry } from '@/hooks/usePoseTelemetry'
+import { useCoachSummary } from '@/hooks/useCoachSummary'
 import VelocityAngleChart from '@/components/VelocityAngleChart'
 import ExerciseSummaryTable from '@/components/ExerciseSummaryTable'
 import SettingsModal from '@/components/SettingsModal'
@@ -166,6 +167,7 @@ export default function Session() {
     active: poseTrackingEnabled,
     lifecycleKey: mediaLifecycleKey,
   })
+  const coachSummary = useCoachSummary()
   const handleAnalyzedSample = useCallback(
     ({ sample, classification, phase: repPhase, repCount, completedRep }: RepAnalysisSample) => {
       if (mediaSource !== 'camera' && mediaSource !== 'upload') return
@@ -396,6 +398,15 @@ export default function Session() {
         reps: repsRef.current,
       })
     }
+
+    if (exercise) {
+      // feed is newest-first (pushFeed prepends); the prompt wants chronological order.
+      coachSummary.generate({
+        feed: [...feed].reverse().map((item) => ({ message: item.message, severity: item.severity })),
+        exerciseName: exercise.name,
+        totalReps: repsRef.current.length,
+      })
+    }
   }
 
   const reset = () => {
@@ -405,6 +416,7 @@ export default function Session() {
     setPhase('setup')
     setDemoActive(false)
     setTab('coach')
+    coachSummary.reset()
   }
 
   const currentExDef = EXERCISES.find((e) => e.id === selectedExerciseId) || EXERCISES[0]
@@ -1233,6 +1245,29 @@ export default function Session() {
                     ? 'Technique broke down early under load. Focus on tempo control and review side-view angle telemetry for correction.'
                     : 'No reps recorded for this session.'}
             </p>
+          </div>
+
+          {/* AI Coach Summary — 3-bullet takeaway generated from the live coaching feed */}
+          <div className="border-2 border-foreground bg-background p-4">
+            <p className="mono-data text-[10px] font-semibold tracking-[0.25em] text-primary">AI COACH SUMMARY</p>
+            {coachSummary.status === 'loading' && (
+              <p className="mt-2 text-sm text-muted-foreground">Generating your summary…</p>
+            )}
+            {coachSummary.status === 'unavailable' && (
+              <p className="mt-2 text-sm text-muted-foreground">
+                AI summary isn't configured for this environment yet.
+              </p>
+            )}
+            {coachSummary.status === 'error' && (
+              <p className="mt-2 text-sm text-muted-foreground">Couldn't generate an AI summary this time.</p>
+            )}
+            {coachSummary.status === 'ready' && (
+              <ul className="mt-2 list-disc space-y-1.5 pl-4 text-sm leading-relaxed text-foreground/90">
+                {coachSummary.bullets.map((bullet, i) => (
+                  <li key={i}>{bullet}</li>
+                ))}
+              </ul>
+            )}
           </div>
 
           {/* Summary Tab Switcher: Summary Table vs Performance Graphs */}
