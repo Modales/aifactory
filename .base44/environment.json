@@ -1,0 +1,12 @@
+{
+  "previewPort": 3000,
+  "healthPath": "/",
+  "startCommand": "docker compose -f docker-compose.base44.yml up -d",
+  "secrets": [
+    {
+      "name": "AIML_API_KEY",
+      "description": "API key for AIML API (https://aimlapi.com) used by the post-workout LLM coach. Optional — the app boots without it; only the 'generate coach summary' feature needs it.",
+      "requiredAtBoot": false
+    }
+  ]
+}
