@@ -77,6 +77,111 @@ class WorkoutSessionRecord(Base):
     __table_args__ = (Index("ix_workout_sessions_user_created", "user_id", "created_at"),)
 
 
+class FollowRecord(Base):
+    __tablename__ = "follows"
+
+    follower_id: Mapped[str] = mapped_column(
+        String, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    followed_id: Mapped[str] = mapped_column(
+        String, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class ActivityRecord(Base):
+    __tablename__ = "activities"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_new_id)
+    user_id: Mapped[str] = mapped_column(
+        String, ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    session_id: Mapped[str | None] = mapped_column(
+        String, ForeignKey("workout_sessions.id", ondelete="SET NULL"), nullable=True, unique=True
+    )
+    caption: Mapped[str] = mapped_column(Text, default="")
+    visibility: Mapped[str] = mapped_column(String(16), default="followers")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    __table_args__ = (Index("ix_activities_created", "created_at"),)
+
+
+class ActivityReactionRecord(Base):
+    __tablename__ = "activity_reactions"
+
+    activity_id: Mapped[str] = mapped_column(
+        String, ForeignKey("activities.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        String, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class ActivityCommentRecord(Base):
+    __tablename__ = "activity_comments"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_new_id)
+    activity_id: Mapped[str] = mapped_column(
+        String, ForeignKey("activities.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[str] = mapped_column(String, ForeignKey("users.id", ondelete="CASCADE"))
+    body: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class ClubRecord(Base):
+    __tablename__ = "clubs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_new_id)
+    owner_id: Mapped[str] = mapped_column(String, ForeignKey("users.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(String(100), unique=True)
+    description: Mapped[str] = mapped_column(Text, default="")
+    is_private: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class ClubMemberRecord(Base):
+    __tablename__ = "club_members"
+
+    club_id: Mapped[str] = mapped_column(
+        String, ForeignKey("clubs.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        String, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    role: Mapped[str] = mapped_column(String(16), default="member")
+    joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class ChallengeRecord(Base):
+    __tablename__ = "challenges"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_new_id)
+    creator_id: Mapped[str] = mapped_column(String, ForeignKey("users.id", ondelete="CASCADE"))
+    club_id: Mapped[str | None] = mapped_column(
+        String, ForeignKey("clubs.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(Text, default="")
+    metric: Mapped[str] = mapped_column(String(32))
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class ChallengeParticipantRecord(Base):
+    __tablename__ = "challenge_participants"
+
+    challenge_id: Mapped[str] = mapped_column(
+        String, ForeignKey("challenges.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        String, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
 class CoachSummaryRecord(Base):
     __tablename__ = "coach_summaries"
 

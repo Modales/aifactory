@@ -11,6 +11,7 @@ from .routes.auth import router as auth_router
 from .routes.history import router as history_router
 from .routes.profile import router as profile_router
 from .routes.summary import router as summary_router
+from .routes.social import router as social_router
 from .routes.workout import router as workout_router
 
 load_dotenv()
@@ -48,8 +49,10 @@ def create_app(
     app.include_router(workout_router)
     app.include_router(history_router)
     app.include_router(summary_router)
+    app.include_router(social_router)
 
     return app
 
 
 app = create_app()
+create_app()

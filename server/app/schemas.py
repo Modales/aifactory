@@ -139,6 +139,101 @@ class HistoryStats(BaseModel):
     lastSessionAt: datetime | None
 
 
+class FollowStatus(BaseModel):
+    userId: str
+    following: bool
+
+
+class ActivityCreatePayload(BaseModel):
+    sessionId: str | None = None
+    caption: str = Field(default="", max_length=2000)
+    visibility: Literal["public", "followers"] = "followers"
+
+
+class ActivityAuthor(BaseModel):
+    id: str
+    displayName: str
+
+
+class ActivityWorkout(BaseModel):
+    exerciseName: str
+    totalReps: int
+    durationSeconds: float
+    avgFormScore: float
+
+
+class ActivityComment(BaseModel):
+    id: str
+    author: ActivityAuthor
+    body: str
+    createdAt: datetime
+
+
+class Activity(BaseModel):
+    id: str
+    author: ActivityAuthor
+    caption: str
+    visibility: Literal["public", "followers"]
+    workout: ActivityWorkout | None
+    reactionCount: int
+    commentCount: int
+    reactedByMe: bool
+    createdAt: datetime
+
+
+class ActivityFeed(BaseModel):
+    items: list[Activity]
+    limit: int
+    offset: int
+
+
+class ClubCreatePayload(BaseModel):
+    name: str = Field(min_length=2, max_length=100)
+    description: str = Field(default="", max_length=2000)
+    isPrivate: bool = False
+
+
+class Club(BaseModel):
+    id: str
+    name: str
+    description: str
+    isPrivate: bool
+    memberCount: int
+    joined: bool
+    createdAt: datetime
+
+
+class ChallengeCreatePayload(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    description: str = Field(default="", max_length=2000)
+    metric: Literal["reps", "sessions", "durationSeconds"]
+    startsAt: datetime
+    endsAt: datetime
+    clubId: str | None = None
+
+
+class Challenge(BaseModel):
+    id: str
+    name: str
+    description: str
+    metric: Literal["reps", "sessions", "durationSeconds"]
+    startsAt: datetime
+    endsAt: datetime
+    participantCount: int
+    joined: bool
+
+
+class ChallengeLeaderboardEntry(BaseModel):
+    rank: int
+    athlete: ActivityAuthor
+    value: float
+
+
+class ChallengeLeaderboard(BaseModel):
+    challenge: Challenge
+    entries: list[ChallengeLeaderboardEntry]
+
+
 class GenerateSummaryPayload(BaseModel):
     sessionId: str
 
