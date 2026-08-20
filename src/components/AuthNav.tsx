@@ -1,5 +1,5 @@
 import { Link, useNavigate } from 'react-router'
-import { History, LayoutDashboard, LogOut } from 'lucide-react'
+import { HeartPulse, History, LayoutDashboard, LogOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/lib/authContext'
 
@@ -27,6 +27,12 @@ export default function AuthNav() {
         className="mono-data hidden items-center gap-2 text-xs tracking-[0.2em] hover:text-primary lg:flex"
       >
         <LayoutDashboard className="h-4 w-4" /> TERMINAL
+      </Link>
+      <Link
+        to="/wearables"
+        className="mono-data hidden items-center gap-2 text-xs tracking-[0.2em] hover:text-primary xl:flex"
+      >
+        <HeartPulse className="h-4 w-4" /> WEARABLES
       </Link>
       <Link
         to="/history"

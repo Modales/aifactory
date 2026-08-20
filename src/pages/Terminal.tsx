@@ -7,6 +7,7 @@ import {
   Dumbbell,
   Flame,
   Heart,
+  HeartPulse,
   History,
   LayoutDashboard,
   Loader2,
@@ -149,7 +150,7 @@ export default function Terminal() {
       <div className="mx-auto grid max-w-[1600px] lg:grid-cols-[220px_minmax(0,1fr)_310px]">
         <aside className="hidden min-h-[calc(100vh-57px)] border-r-2 border-foreground px-3 py-6 lg:block">
           <p className="mono-data px-3 text-[9px] tracking-[0.24em] text-muted-foreground">NAVIGATION</p>
-          <nav className="mt-3 space-y-1"><NavItem icon={LayoutDashboard} label="TERMINAL" to="/terminal" active /><NavItem icon={History} label="TRAINING LOG" to="/history" /><NavItem icon={Activity} label="LIVE SET" to="/session" /></nav>
+          <nav className="mt-3 space-y-1"><NavItem icon={LayoutDashboard} label="TERMINAL" to="/terminal" active /><NavItem icon={HeartPulse} label="WEARABLES" to="/wearables" /><NavItem icon={History} label="TRAINING LOG" to="/history" /><NavItem icon={Activity} label="LIVE SET" to="/session" /></nav>
           <div className="mt-10 border-t-2 border-foreground pt-5"><p className="mono-data px-3 text-[9px] tracking-[0.24em] text-muted-foreground">ATHLETE</p><p className="mt-3 px-3 text-sm font-bold">{user?.displayName}</p><p className="mono-data mt-1 px-3 text-[9px] tracking-[0.15em] text-primary">CONNECTED</p></div>
         </aside>
 
