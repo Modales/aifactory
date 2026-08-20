@@ -16,6 +16,7 @@ import {
   Trophy,
   Users,
 } from 'lucide-react'
+import AppNavigation from '@/components/AppNavigation'
 import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
 import type { HistoryStats, SocialActivity, SocialChallenge, SocialClub } from '@/lib/api'
@@ -108,7 +109,7 @@ export default function Terminal() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (status === 'anonymous') navigate('/login', { replace: true, state: { from: '/terminal' } })
+    if (status === 'anonymous') navigate('/login', { replace: true, state: { from: '/dashboard' } })
   }, [status, navigate])
 
   useEffect(() => {
@@ -137,12 +138,12 @@ export default function Terminal() {
   if (status !== 'authenticated') return <div className="flex min-h-screen items-center justify-center"><Loader2 className="h-6 w-6 animate-spin" /></div>
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background pb-16 md:pb-0">
       <div className="noise" />
       <header className="sticky top-0 z-40 border-b-2 border-foreground bg-background/95 backdrop-blur">
         <div className="flex h-14 items-center justify-between px-4 lg:px-6">
           <Link to="/" className="text-xl font-bold tracking-tight">FORMFIT<span className="text-primary">*</span></Link>
-          <div className="hidden items-center gap-3 md:flex"><span className="mono-data text-[10px] tracking-[0.2em] text-muted-foreground">ATHLETE TERMINAL</span><span className="h-2 w-2 bg-primary" /><span className="mono-data text-[10px] tracking-[0.16em]">LIVE</span></div>
+          <AppNavigation />
           <Link to="/session"><Button size="sm" className="border-2 border-foreground font-bold">START SET <ArrowRight className="ml-1 h-4 w-4" /></Button></Link>
         </div>
       </header>
@@ -150,12 +151,12 @@ export default function Terminal() {
       <div className="mx-auto grid max-w-[1600px] lg:grid-cols-[220px_minmax(0,1fr)_310px]">
         <aside className="hidden min-h-[calc(100vh-57px)] border-r-2 border-foreground px-3 py-6 lg:block">
           <p className="mono-data px-3 text-[9px] tracking-[0.24em] text-muted-foreground">NAVIGATION</p>
-          <nav className="mt-3 space-y-1"><NavItem icon={LayoutDashboard} label="TERMINAL" to="/terminal" active /><NavItem icon={HeartPulse} label="WEARABLES" to="/wearables" /><NavItem icon={History} label="TRAINING LOG" to="/history" /><NavItem icon={Activity} label="LIVE SET" to="/session" /></nav>
+          <nav className="mt-3 space-y-1"><NavItem icon={LayoutDashboard} label="DASHBOARD" to="/dashboard" active /><NavItem icon={Users} label="SOCIAL" to="/dashboard#social" /><NavItem icon={HeartPulse} label="WEARABLES" to="/wearables" /><NavItem icon={History} label="TRAINING LOG" to="/history" /><NavItem icon={Activity} label="LIVE SET" to="/session" /></nav>
           <div className="mt-10 border-t-2 border-foreground pt-5"><p className="mono-data px-3 text-[9px] tracking-[0.24em] text-muted-foreground">ATHLETE</p><p className="mt-3 px-3 text-sm font-bold">{user?.displayName}</p><p className="mono-data mt-1 px-3 text-[9px] tracking-[0.15em] text-primary">CONNECTED</p></div>
         </aside>
 
         <main className="min-w-0 border-r-2 border-foreground px-4 py-7 sm:px-6 lg:px-8">
-          <div className="flex items-end justify-between gap-4"><div><p className="mono-data text-[10px] tracking-[0.24em] text-primary">COMMAND CENTER / 01</p><h1 className="mt-2 text-4xl font-black uppercase leading-none">The <span className="font-serifit normal-case italic text-primary">terminal.</span></h1></div><p className="hidden max-w-40 text-right text-xs text-muted-foreground sm:block">Your training, your crew, your next target.</p></div>
+          <div className="flex items-end justify-between gap-4"><div><p className="mono-data text-[10px] tracking-[0.24em] text-primary">COMMAND CENTER / 01</p><h1 className="mt-2 text-4xl font-black uppercase leading-none">Your <span className="font-serifit normal-case italic text-primary">dashboard.</span></h1></div><p className="hidden max-w-40 text-right text-xs text-muted-foreground sm:block">Your training, your crew, your next target.</p></div>
           <section className="mt-7 grid grid-cols-2 gap-3 xl:grid-cols-4"><Stat label="TOTAL SESSIONS" value={String(stats?.totalSessions ?? 0)} /><Stat label="TOTAL REPS" value={String(stats?.totalReps ?? 0)} accent /><Stat label="AVG FORM" value={stats ? `${Math.round(stats.avgFormScore)}` : '—'} /><Stat label="CREW" value={String(joinedClubs.length)} /></section>
 
           <div id="social" className="mt-8 flex scroll-mt-20 items-center justify-between border-b-2 border-foreground pb-3"><div className="flex items-center gap-2"><Users className="h-4 w-4 text-primary" /><h2 className="text-lg font-black uppercase">Social / crew feed</h2></div><span className="mono-data text-[9px] tracking-[0.16em] text-muted-foreground">FOLLOWED ATHLETES + PUBLIC</span></div>

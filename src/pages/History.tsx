@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { motion } from 'framer-motion'
-import { ArrowRight, HeartPulse, LayoutDashboard, Loader2, Users } from 'lucide-react'
+import { ArrowRight, Loader2 } from 'lucide-react'
+import AppNavigation from '@/components/AppNavigation'
 import { Button } from '@/components/ui/button'
 import TelemetryDialog from '@/components/TelemetryDialog'
 import { api } from '@/lib/api'
@@ -90,7 +91,7 @@ export default function HistoryPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background pb-16 md:pb-0">
       <div className="noise" />
 
       <header className="sticky top-0 z-40 border-b-2 border-foreground bg-background/90 backdrop-blur">
@@ -99,23 +100,7 @@ export default function HistoryPage() {
             FORMFIT<span className="text-primary">*</span>
           </Link>
           <div className="flex items-center gap-2">
-            <nav className="hidden items-center gap-1 md:flex" aria-label="Athlete tools">
-              <Link to="/terminal">
-                <Button variant="ghost" size="sm" className="font-bold">
-                  <LayoutDashboard className="mr-1 h-4 w-4" /> TERMINAL
-                </Button>
-              </Link>
-              <Link to="/terminal#social">
-                <Button variant="ghost" size="sm" className="font-bold">
-                  <Users className="mr-1 h-4 w-4" /> SOCIAL
-                </Button>
-              </Link>
-              <Link to="/wearables">
-                <Button variant="ghost" size="sm" className="font-bold">
-                  <HeartPulse className="mr-1 h-4 w-4" /> WEARABLES
-                </Button>
-              </Link>
-            </nav>
+            <AppNavigation />
             <Link to="/session">
               <Button className="hard-shadow-sm border-2 border-foreground font-bold transition-transform hover:-translate-y-0.5">
                 START A SET <ArrowRight className="ml-1 h-4 w-4" />

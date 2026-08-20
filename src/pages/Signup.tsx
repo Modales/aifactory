@@ -29,7 +29,7 @@ export default function Signup() {
     setBusy(true)
     try {
       await signup(email.trim(), password, displayName.trim())
-      navigate('/history', { replace: true })
+      navigate('/dashboard', { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not create the account')
     } finally {
