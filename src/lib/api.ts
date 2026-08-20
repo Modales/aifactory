@@ -58,6 +58,50 @@ export interface HistoryStats {
   lastSessionAt: string | null
 }
 
+export interface SocialAuthor {
+  id: string
+  displayName: string
+}
+
+export interface SocialActivity {
+  id: string
+  author: SocialAuthor
+  caption: string
+  visibility: 'public' | 'followers'
+  workout: { exerciseName: string; totalReps: number; durationSeconds: number; avgFormScore: number } | null
+  reactionCount: number
+  commentCount: number
+  reactedByMe: boolean
+  createdAt: string
+}
+
+export interface SocialFeed {
+  items: SocialActivity[]
+  limit: number
+  offset: number
+}
+
+export interface SocialClub {
+  id: string
+  name: string
+  description: string
+  isPrivate: boolean
+  memberCount: number
+  joined: boolean
+  createdAt: string
+}
+
+export interface SocialChallenge {
+  id: string
+  name: string
+  description: string
+  metric: 'reps' | 'sessions' | 'durationSeconds'
+  startsAt: string
+  endsAt: string
+  participantCount: number
+  joined: boolean
+}
+
 export interface CoachSummary {
   jobId: string
   sessionId: string
@@ -206,6 +250,15 @@ export const api = {
 
   summaryJob: (jobId: string) =>
     request<CoachSummary>(`/api/workout/generate-summary/${jobId}`),
+  socialFeed: () => request<SocialFeed>('/api/social/feed'),
+  clubs: () => request<SocialClub[]>('/api/social/clubs'),
+  challenges: () => request<SocialChallenge[]>('/api/social/challenges'),
+  reactToActivity: (activityId: string) =>
+    request<SocialActivity>(`/api/social/activities/${activityId}/reaction`, { method: 'PUT' }),
+  joinClub: (clubId: string) =>
+    request<SocialClub>(`/api/social/clubs/${clubId}/membership`, { method: 'PUT' }),
+  joinChallenge: (challengeId: string) =>
+    request<SocialChallenge>(`/api/social/challenges/${challengeId}/participation`, { method: 'PUT' }),
 }
 
 const POLL_INTERVAL_MS = 1500

@@ -1,5 +1,5 @@
 import { Link, useNavigate } from 'react-router'
-import { History, LogOut } from 'lucide-react'
+import { History, LayoutDashboard, LogOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/lib/authContext'
 
@@ -22,6 +22,12 @@ export default function AuthNav() {
 
   return (
     <div className="flex items-center gap-3">
+      <Link
+        to="/terminal"
+        className="mono-data hidden items-center gap-2 text-xs tracking-[0.2em] hover:text-primary lg:flex"
+      >
+        <LayoutDashboard className="h-4 w-4" /> TERMINAL
+      </Link>
       <Link
         to="/history"
         className="mono-data hidden items-center gap-2 text-xs tracking-[0.2em] hover:text-primary sm:flex"
