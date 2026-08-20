@@ -44,6 +44,7 @@ import SettingsModal from '@/components/SettingsModal'
 import { buildRepAnalysis, normalizeFormToleranceMode, type ExerciseId } from '@/lib/biomechanics_v2'
 import { extractFrameAngles } from '@/lib/pose/jointAngles'
 import { audioEngine } from '@/lib/audioEngine'
+import { TechniqueCoach } from '@/lib/techniqueCoach'
 import { saveSessionToHistory, useUserSettings } from '@/lib/workoutStore'
 import { api, getStoredToken, waitForCoachSummary, type CoachSummary } from '@/lib/api'
 import CoachNote, { type CoachNoteState } from '@/components/CoachNote'
@@ -103,6 +104,7 @@ export default function Session() {
   const feedIdRef = useRef(0)
   const repsRef = useRef<RepData[]>([])
   const angleRef = useRef<CameraAngle | null>(null)
+  const techniqueCoachRef = useRef(new TechniqueCoach())
 
   const {
     source: mediaSource,
@@ -147,17 +149,23 @@ export default function Session() {
     setFeed((f) => [{ id: feedIdRef.current++, time: now(), message, severity }, ...f].slice(0, 40))
   }, [])
 
+  const deliverTechniqueFeedback = useCallback((rep: RepData) => {
+    const feedback = techniqueCoachRef.current.next(rep)
+    audioEngine.playTone(
+      rep.severity === 'crit' ? 'crit' : rep.severity === 'warn' ? 'warn' : 'rep',
+    )
+    if (!feedback) return
+    pushFeed(feedback.message, feedback.severity)
+    if (feedback.speak) audioEngine.speakCue(feedback.message, feedback.severity === 'crit')
+  }, [pushFeed])
+
   const handleTrackedRep = useCallback(
     (rep: RepData) => {
       repsRef.current = [...repsRef.current, rep]
       setReps(repsRef.current)
-      pushFeed(rep.cue, rep.severity)
-      audioEngine.playTone(
-        rep.severity === 'crit' ? 'crit' : rep.severity === 'warn' ? 'warn' : 'rep',
-      )
-      audioEngine.speakCue(rep.cue, rep.severity === 'crit')
+      deliverTechniqueFeedback(rep)
     },
-    [pushFeed],
+    [deliverTechniqueFeedback],
   )
 
   const poseTelemetry = usePoseTelemetry({
@@ -232,11 +240,7 @@ export default function Session() {
         const rep = simulateRep(nextIndex, ex)
         repsRef.current = [...repsRef.current, rep]
         setReps(repsRef.current)
-        pushFeed(rep.cue, rep.severity)
-
-        // Audio HUD feedback trigger
-        audioEngine.playTone(rep.severity === 'crit' ? 'crit' : rep.severity === 'warn' ? 'warn' : 'rep')
-        audioEngine.speakCue(rep.cue, rep.severity === 'crit')
+        deliverTechniqueFeedback(rep)
 
         if (rep.effort >= 85) {
           pushFeed(`Effort at ${rep.effort}% — velocity decay & form degradation detected`, 'info')
@@ -254,7 +258,7 @@ export default function Session() {
         scheduleNextRep(ex)
       }, delay)
     },
-    [pushFeed],
+    [deliverTechniqueFeedback, pushFeed],
   )
 
   const startLiveSet = useCallback(
@@ -315,6 +319,7 @@ export default function Session() {
   const clearAnalysisData = useCallback(() => {
     clearTimers()
     audioEngine.cancelAll()
+    techniqueCoachRef.current.reset()
     repsRef.current = []
     angleRef.current = null
     setExercise(null)

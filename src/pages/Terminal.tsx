@@ -17,9 +17,10 @@ import {
   Users,
 } from 'lucide-react'
 import AppNavigation from '@/components/AppNavigation'
+import WorkoutVolumeTrend from '@/components/WorkoutVolumeTrend'
 import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
-import type { HistoryStats, SocialActivity, SocialChallenge, SocialClub } from '@/lib/api'
+import type { HistoryItem, HistoryStats, SocialActivity, SocialChallenge, SocialClub } from '@/lib/api'
 import { useAuth } from '@/lib/authContext'
 
 function relativeTime(value: string): string {
@@ -103,6 +104,7 @@ export default function Terminal() {
   const { user, status } = useAuth()
   const navigate = useNavigate()
   const [stats, setStats] = useState<HistoryStats | null>(null)
+  const [workouts, setWorkouts] = useState<HistoryItem[]>([])
   const [feed, setFeed] = useState<SocialActivity[]>([])
   const [clubs, setClubs] = useState<SocialClub[]>([])
   const [challenges, setChallenges] = useState<SocialChallenge[]>([])
@@ -115,10 +117,11 @@ export default function Terminal() {
   useEffect(() => {
     if (status !== 'authenticated') return
     let cancelled = false
-    Promise.all([api.stats(), api.socialFeed(), api.clubs(), api.challenges()])
-      .then(([nextStats, nextFeed, nextClubs, nextChallenges]) => {
+    Promise.all([api.stats(), api.history({ limit: 100 }), api.socialFeed(), api.clubs(), api.challenges()])
+      .then(([nextStats, history, nextFeed, nextClubs, nextChallenges]) => {
         if (cancelled) return
         setStats(nextStats)
+        setWorkouts(history.items)
         setFeed(nextFeed.items)
         setClubs(nextClubs)
         setChallenges(nextChallenges)
@@ -158,6 +161,7 @@ export default function Terminal() {
         <main className="min-w-0 border-r-2 border-foreground px-4 py-7 sm:px-6 lg:px-8">
           <div className="flex items-end justify-between gap-4"><div><p className="mono-data text-[10px] tracking-[0.24em] text-primary">COMMAND CENTER / 01</p><h1 className="mt-2 text-4xl font-black uppercase leading-none">Your <span className="font-serifit normal-case italic text-primary">dashboard.</span></h1></div><p className="hidden max-w-40 text-right text-xs text-muted-foreground sm:block">Your training, your crew, your next target.</p></div>
           <section className="mt-7 grid grid-cols-2 gap-3 xl:grid-cols-4"><Stat label="TOTAL SESSIONS" value={String(stats?.totalSessions ?? 0)} /><Stat label="TOTAL REPS" value={String(stats?.totalReps ?? 0)} accent /><Stat label="AVG FORM" value={stats ? `${Math.round(stats.avgFormScore)}` : '—'} /><Stat label="CREW" value={String(joinedClubs.length)} /></section>
+          <WorkoutVolumeTrend workouts={workouts} />
 
           <div id="social" className="mt-8 flex scroll-mt-20 items-center justify-between border-b-2 border-foreground pb-3"><div className="flex items-center gap-2"><Users className="h-4 w-4 text-primary" /><h2 className="text-lg font-black uppercase">Social / crew feed</h2></div><span className="mono-data text-[9px] tracking-[0.16em] text-muted-foreground">FOLLOWED ATHLETES + PUBLIC</span></div>
           <div className="mt-4 space-y-4">
