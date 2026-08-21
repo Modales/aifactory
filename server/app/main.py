@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from .coach import AimlCoach, CoachGenerator
 from .config import load_settings
@@ -27,6 +28,11 @@ def create_app(
     async def lifespan(app: FastAPI):
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            if conn.dialect.name == "postgresql":
+                await conn.execute(text(
+                    "ALTER TABLE workout_sessions "
+                    "ADD COLUMN IF NOT EXISTS muscle_load JSON NOT NULL DEFAULT '{}'"
+                ))
         yield
 
     app = FastAPI(title="aifactory-server", lifespan=lifespan)

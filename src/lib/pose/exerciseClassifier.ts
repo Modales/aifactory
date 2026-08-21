@@ -1,7 +1,14 @@
 import { extractFrameAngles } from './jointAngles'
 import type { PoseLandmark } from './types'
 
-export type ExerciseLabel = 'SQUAT' | 'BICEP_CURL' | 'PUSH_UP' | 'UNKNOWN'
+export type ExerciseLabel =
+  | 'SQUAT'
+  | 'DEADLIFT'
+  | 'BENCH_PRESS'
+  | 'OVERHEAD_PRESS'
+  | 'BICEP_CURL'
+  | 'LUNGE'
+  | 'UNKNOWN'
 
 export interface ExerciseClassification {
   label: ExerciseLabel
@@ -14,7 +21,7 @@ const UNKNOWN: ExerciseClassification = {
   label: 'UNKNOWN',
   confidence: 0,
   source: 'heuristic',
-  reason: 'Insufficient visible pose evidence',
+  reason: 'Insufficient or ambiguous visible pose evidence',
 }
 
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value))
@@ -37,34 +44,44 @@ function horizontalAlignment(landmarks: PoseLandmark[], aspectRatio: number): nu
   }))
 }
 
-/** Classifies only observable geometry; weak or occluded evidence stays UNKNOWN. */
-export function classifyExercise(
-  landmarks: PoseLandmark[],
-  aspectRatio: number,
-): ExerciseClassification {
+/** Geometry-only classifier. It deliberately returns UNKNOWN when movement signatures overlap. */
+export function classifyExercise(landmarks: PoseLandmark[], aspectRatio: number): ExerciseClassification {
   const angles = extractFrameAngles(landmarks, aspectRatio)
   if (!angles || angles.confidence < 0.65) return UNKNOWN
 
   const horizontal = horizontalAlignment(landmarks, aspectRatio)
-  const pushUp = horizontal * clamp01((angles.shoulder - 25) / 55)
-  const squat = (1 - horizontal) * clamp01((170 - angles.knee) / 55 + 0.35) *
-    clamp01((175 - angles.hip) / 55 + 0.3)
-  const curl = (1 - horizontal) * clamp01((155 - angles.elbow) / 85 + 0.25) *
-    clamp01((80 - angles.shoulder) / 60)
+  const upright = 1 - horizontal
+  const shoulderVisibility = pointVisibility(landmarks, [11, 12, 15, 16])
+  const lowerVisibility = pointVisibility(landmarks, [23, 24, 25, 26, 27, 28])
+  const wristsAboveShoulders = shoulderVisibility < 0.6 ? 0 : clamp01(
+    ((landmarks[11].y + landmarks[12].y) / 2 - (landmarks[15].y + landmarks[16].y) / 2 + 0.05) / 0.35,
+  )
+  const shoulderWidth = Math.max(0.08, Math.abs(landmarks[11].x - landmarks[12].x))
+  const stanceWidth = Math.abs(landmarks[27].x - landmarks[28].x) / shoulderWidth
+  const wideStance = clamp01((stanceWidth - 1.15) / 1.4) * lowerVisibility
+  const kneeFlexion = clamp01((170 - angles.knee) / 75)
+  const hipFlexion = clamp01((170 - angles.hip) / 80)
+  const elbowFlexion = clamp01((155 - angles.elbow) / 90)
+  const elbowExtension = clamp01((angles.elbow - 115) / 55)
+  const torsoInclination = clamp01((angles.back - 25) / 65)
 
   const candidates: Array<[Exclude<ExerciseLabel, 'UNKNOWN'>, number, string]> = [
-    ['PUSH_UP', pushUp, 'Horizontal shoulder-to-ankle alignment with usable arm geometry'],
-    ['SQUAT', squat, 'Usable hip-knee-ankle chain with squat-compatible posture'],
-    ['BICEP_CURL', curl, 'Usable shoulder-elbow-wrist chain with curl-compatible arm posture'],
+    ['BENCH_PRESS', horizontal * clamp01((angles.shoulder - 20) / 65) * (0.6 + elbowFlexion * 0.4), 'Horizontal torso with press-range shoulder and elbow geometry'],
+    ['OVERHEAD_PRESS', upright * wristsAboveShoulders * (0.55 + elbowExtension * 0.45), 'Upright torso with both wrists above the shoulders'],
+    ['LUNGE', upright * wideStance * kneeFlexion * (0.65 + hipFlexion * 0.35), 'Split stance with visible knee and hip flexion'],
+    ['DEADLIFT', upright * torsoInclination * hipFlexion * (0.55 + (1 - kneeFlexion) * 0.45), 'Hip hinge with inclined torso and comparatively extended knees'],
+    ['SQUAT', upright * kneeFlexion * hipFlexion * (0.7 + (1 - wideStance) * 0.3), 'Bilateral stance with concurrent hip and knee flexion'],
+    ['BICEP_CURL', upright * elbowFlexion * (1 - wristsAboveShoulders) * clamp01((85 - angles.shoulder) / 70), 'Upright torso with elbow flexion below shoulder height'],
   ]
   candidates.sort((a, b) => b[1] - a[1])
   const [label, score, reason] = candidates[0]
   const confidence = clamp01(score * angles.confidence)
-  if (confidence < 0.58 || confidence - candidates[1][1] * angles.confidence < 0.08) return UNKNOWN
+  const runnerUp = candidates[1][1] * angles.confidence
+  if (confidence < 0.58 || confidence - runnerUp < 0.08) return UNKNOWN
   return { label, confidence, source: 'heuristic', reason }
 }
 
-/** Requires repeated evidence before changing a stable label. */
+/** Requires repeated evidence before offering a movement for user confirmation. */
 export class ExerciseClassifier {
   private stable: ExerciseClassification = UNKNOWN
   private candidate: ExerciseLabel = 'UNKNOWN'
@@ -84,7 +101,7 @@ export class ExerciseClassifier {
     } else {
       this.candidateFrames += 1
     }
-    if (this.candidateFrames >= 3) this.stable = next
+    if (this.candidateFrames >= 5) this.stable = next
     return this.stable
   }
 

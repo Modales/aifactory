@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..deps import get_current_user
+from ..muscle_load import normalize_muscle_load
 from ..orm import UserRecord, WorkoutSessionRecord
 from ..schemas import (
     ExerciseBreakdown,
@@ -30,6 +31,7 @@ def _to_item(record: WorkoutSessionRecord) -> HistoryItem:
         totalReps=record.total_reps,
         avgFormScore=record.avg_form_score,
         peakEffort=record.peak_effort,
+        muscleLoad=normalize_muscle_load(record.muscle_load),
         createdAt=record.created_at,
     )
 
@@ -97,6 +99,7 @@ async def read_history_entry(
         totalReps=record.total_reps,
         avgFormScore=record.avg_form_score,
         peakEffort=record.peak_effort,
+        muscleLoad=normalize_muscle_load(record.muscle_load),
         reps=record.reps,
         createdAt=record.created_at,
     )
@@ -127,6 +130,7 @@ async def read_telemetry(
         exerciseId=record.exercise_id,
         exerciseName=record.exercise_name,
         recordedAt=record.created_at,
+        muscleLoad=normalize_muscle_load(record.muscle_load),
         reps=reps,
         flawCounts=dict(flaw_counts),
     )

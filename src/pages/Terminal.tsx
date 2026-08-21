@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import AppNavigation from '@/components/AppNavigation'
 import WorkoutVolumeTrend from '@/components/WorkoutVolumeTrend'
+import MuscleHeatmap from '@/components/MuscleHeatmap'
 import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
 import type { HistoryItem, HistoryStats, SocialActivity, SocialChallenge, SocialClub } from '@/lib/api'

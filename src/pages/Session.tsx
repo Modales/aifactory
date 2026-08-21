@@ -48,6 +48,8 @@ import { TechniqueCoach } from '@/lib/techniqueCoach'
 import { saveSessionToHistory, useUserSettings } from '@/lib/workoutStore'
 import { api, getStoredToken, waitForCoachSummary, type CoachSummary } from '@/lib/api'
 import CoachNote, { type CoachNoteState } from '@/components/CoachNote'
+import MuscleHeatmap from '@/components/MuscleHeatmap'
+import { estimateMuscleLoad } from '@/lib/muscleModel'
 import {
   EXERCISES,
   angleForExercise,
@@ -65,6 +67,14 @@ type SessionViewPhase = SessionPhase | 'media'
 type MobileTab = 'coach' | 'data'
 
 const CAMERA_VIDEO_MIRRORED = false
+const DETECTION_EXERCISE_IDS: Record<string, string> = {
+  SQUAT: 'squat',
+  DEADLIFT: 'deadlift',
+  BENCH_PRESS: 'bench',
+  OVERHEAD_PRESS: 'ohp',
+  BICEP_CURL: 'curl',
+  LUNGE: 'lunge',
+}
 
 const SEV_STYLE: Record<FeedItem['severity'], string> = {
   good: 'border-emerald-600 bg-emerald-50 text-emerald-950',
@@ -96,8 +106,9 @@ export default function Session() {
   const [tab, setTab] = useState<MobileTab>('coach')
   const [countdownVal, setCountdownVal] = useState<number>(3)
   const [isOffline, setIsOffline] = useState<boolean>(!navigator.onLine)
+  const [detectedCandidate, setDetectedCandidate] = useState<ExerciseDef | null>(null)
 
-  const { settings } = useUserSettings()
+  const { settings, updateSettings } = useUserSettings()
   const repTimerRef = useRef<number | null>(null)
   const clockRef = useRef<number | null>(null)
   const countdownTimerRef = useRef<number | null>(null)
@@ -144,6 +155,12 @@ export default function Session() {
       window.removeEventListener('offline', handleOffline)
     }
   }, [])
+
+  useEffect(() => {
+    if (settings.exerciseSelectionMode === 'manual') {
+      setSelectedExerciseId(settings.manualExerciseId)
+    }
+  }, [settings.exerciseSelectionMode, settings.manualExerciseId])
 
   const pushFeed = useCallback((message: string, severity: FeedItem['severity']) => {
     setFeed((f) => [{ id: feedIdRef.current++, time: now(), message, severity }, ...f].slice(0, 40))
@@ -199,7 +216,7 @@ export default function Session() {
     [mediaSource, poseTelemetry.publish],
   )
   const { isCalibrated, classification: detectedExercise } = useRepAnalysis({
-    active: poseTrackingEnabled && exercise !== null,
+    active: poseTrackingEnabled,
     exercise,
     lifecycleKey: mediaLifecycleKey,
     sample: poseTracking.latestSample,
@@ -207,6 +224,14 @@ export default function Session() {
     onRep: handleTrackedRep,
     onSample: handleAnalyzedSample,
   })
+
+  useEffect(() => {
+    if (settings.exerciseSelectionMode !== 'detect' || exercise || detectedCandidate) return
+    if (detectedExercise.label === 'UNKNOWN' || detectedExercise.confidence < 0.68) return
+    const exerciseId = DETECTION_EXERCISE_IDS[detectedExercise.label]
+    const match = EXERCISES.find((item) => item.id === exerciseId)
+    if (match) setDetectedCandidate(match)
+  }, [detectedCandidate, detectedExercise, exercise, settings.exerciseSelectionMode])
 
   // A tracked set has no scripted timeline, so its clock follows live inference.
   useEffect(() => {
@@ -333,12 +358,39 @@ export default function Session() {
 
   /** Locks in what a tracked set is scored against; detection never changes this choice. */
   const prepareTrackedSet = useCallback(() => {
+    setDetectedCandidate(null)
+    if (settings.exerciseSelectionMode === 'detect') {
+      setExercise(null)
+      angleRef.current = null
+      setAngle(null)
+      return
+    }
     const ex = EXERCISES.find((e) => e.id === selectedExerciseId) ?? EXERCISES[0]
     setExercise(ex)
     const a = angleForExercise(ex)
     angleRef.current = a
     setAngle(a)
-  }, [selectedExerciseId])
+  }, [selectedExerciseId, settings.exerciseSelectionMode])
+
+  const confirmDetectedExercise = () => {
+    if (!detectedCandidate) return
+    setExercise(detectedCandidate)
+    const detectedAngle = angleForExercise(detectedCandidate)
+    angleRef.current = detectedAngle
+    setAngle(detectedAngle)
+    setDetectedCandidate(null)
+    pushFeed(`Exercise confirmed: ${detectedCandidate.name}. Rep calibration started.`, 'info')
+  }
+
+  const chooseExerciseManually = () => {
+    updateSettings({ exerciseSelectionMode: 'manual' })
+    const manualExercise = EXERCISES.find((item) => item.id === selectedExerciseId) ?? EXERCISES[0]
+    setExercise(manualExercise)
+    const manualAngle = angleForExercise(manualExercise)
+    angleRef.current = manualAngle
+    setAngle(manualAngle)
+    setDetectedCandidate(null)
+  }
 
   const startCamera = () => {
     stopPoseTracking()
@@ -394,6 +446,7 @@ export default function Session() {
     if (exercise && repsRef.current.length > 0) {
       const avgForm = Math.round(repsRef.current.reduce((a, r) => a + r.formScore, 0) / repsRef.current.length)
       const peakEffort = Math.max(...repsRef.current.map((r) => r.effort))
+      const muscleLoad = estimateMuscleLoad(exercise.id, repsRef.current)
       const payload = {
         exerciseName: exercise.name,
         exerciseId: exercise.id,
@@ -402,6 +455,7 @@ export default function Session() {
         totalReps: repsRef.current.length,
         avgFormScore: avgForm,
         peakEffort,
+        muscleLoad,
         reps: repsRef.current,
       }
 
@@ -445,11 +499,19 @@ export default function Session() {
   }
 
   const currentExDef = EXERCISES.find((e) => e.id === selectedExerciseId) || EXERCISES[0]
-  const rec = currentExDef.recommendation
+  const rec = settings.exerciseSelectionMode === 'detect'
+    ? {
+        recommendedCamera: 'Three-quarter' as CameraAngle,
+        recommendedDistance: '2.5–3.0 meters',
+        framingGuidance: 'Keep your full body, hands, and feet visible so movement signatures can be compared.',
+        setupNotes: 'A three-quarter view preserves useful sagittal and frontal-plane joint geometry for confirmation.',
+      }
+    : currentExDef.recommendation
 
   const latest = reps[reps.length - 1]
   const avgForm = reps.length ? Math.round(reps.reduce((a, r) => a + r.formScore, 0) / reps.length) : 0
   const effort = latest?.effort ?? 0
+  const muscleLoad = useMemo(() => exercise ? estimateMuscleLoad(exercise.id, reps) : null, [exercise, reps])
   const zone = zoneFor(effort)
   const toleranceMode = normalizeFormToleranceMode(settings.sensitivity)
   const liveFrameMetrics = useMemo(() => {
@@ -483,7 +545,7 @@ export default function Session() {
   const analysisLive = setInProgress || phase === 'ended'
   // The setup selection remains authoritative; heuristic detection is informational only.
   const detectionBadge = realTrackingMode ? 'MANUAL' : `${confidence}%`
-  const detectedExerciseLabel = detectedExercise.label.replace('_', ' ')
+  const detectedExerciseLabel = detectedExercise.label.replaceAll('_', ' ')
   const detectedExerciseConfidence = Math.round(detectedExercise.confidence * 100)
   const mm = String(Math.floor(elapsed / 60)).padStart(2, '0')
   const ss = String(elapsed % 60).padStart(2, '0')
@@ -708,21 +770,38 @@ export default function Session() {
                   {/* AI Camera Guidance Box & 3D Preview Window */}
                   <div className="w-full max-w-md space-y-2.5 border-2 border-foreground bg-card p-3.5 sm:p-4 hard-shadow-sm text-left">
                     <div>
-                      <label className="mono-data block text-[10px] font-bold tracking-wider text-primary mb-1">
-                        SELECT EXERCISE
-                      </label>
-                      <Select value={selectedExerciseId} onValueChange={setSelectedExerciseId}>
-                        <SelectTrigger className="h-9 w-full border-2 font-mono text-xs font-semibold bg-background">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent className="border-2 font-mono text-xs">
-                          {EXERCISES.map((e) => (
-                            <SelectItem key={e.id} value={e.id}>
-                              {e.name} ({e.primaryMuscles[0]})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <div className="mb-1 flex items-center justify-between gap-2">
+                        <label className="mono-data block text-[10px] font-bold tracking-wider text-primary">
+                          EXERCISE MODE
+                        </label>
+                        <span className="mono-data border border-foreground px-2 py-0.5 text-[8px] font-bold">
+                          {settings.exerciseSelectionMode === 'detect' ? 'AI DETECTION' : 'MANUAL'}
+                        </span>
+                      </div>
+                      {settings.exerciseSelectionMode === 'manual' ? (
+                        <Select
+                          value={selectedExerciseId}
+                          onValueChange={(value) => {
+                            setSelectedExerciseId(value)
+                            updateSettings({ manualExerciseId: value })
+                          }}
+                        >
+                          <SelectTrigger className="h-9 w-full border-2 font-mono text-xs font-semibold bg-background">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent className="border-2 font-mono text-xs">
+                            {EXERCISES.map((e) => (
+                              <SelectItem key={e.id} value={e.id}>
+                                {e.name} ({e.primaryMuscles[0]})
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <p className="border-2 border-dashed border-foreground bg-background p-2 text-[10px] text-muted-foreground">
+                          Start camera or upload video. FormFit will wait for a stable movement signature, then ask you to confirm before scoring.
+                        </p>
+                      )}
                     </div>
 
                     <div className="border-2 border-foreground/20 bg-background p-2.5 space-y-1.5">
@@ -1159,6 +1238,8 @@ export default function Session() {
               </div>
             </div>
 
+            {muscleLoad && reps.length > 0 && <MuscleHeatmap summary={muscleLoad} compact />}
+
             <div className="hard-shadow-sm flex-1 border-2 border-foreground bg-card">
               <div className="flex items-center gap-2 border-b-2 border-foreground px-4 py-2.5">
                 <Timer className="h-4 w-4 text-primary" />
@@ -1169,6 +1250,29 @@ export default function Session() {
           </div>
         </div>
       </main>
+
+      <Dialog open={detectedCandidate !== null} onOpenChange={() => undefined}>
+        <DialogContent className="hard-shadow border-2 border-foreground bg-card sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-serifit text-2xl italic">Confirm exercise</DialogTitle>
+            <DialogDescription>
+              The pose classifier found a stable movement signature, but you stay in control before any reps are scored.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="border-2 border-foreground bg-background p-4">
+            <p className="mono-data text-[9px] tracking-[0.2em] text-primary">AI SUGGESTION</p>
+            <p className="mt-1 text-2xl font-black uppercase">{detectedCandidate?.name}</p>
+            <p className="mono-data mt-2 text-[10px] text-muted-foreground">
+              CONFIDENCE {Math.round(detectedExercise.confidence * 100)}% · {detectedExercise.reason}
+            </p>
+          </div>
+          <p className="text-xs text-muted-foreground">Confirm only if this matches your movement. Scoring and muscle-demand estimation begin after confirmation.</p>
+          <div className="grid grid-cols-2 gap-3">
+            <Button variant="outline" className="border-2 border-foreground font-bold" onClick={chooseExerciseManually}>CHOOSE MANUALLY</Button>
+            <Button className="border-2 border-foreground font-bold" onClick={confirmDetectedExercise}>CONFIRM</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Mobile Sticky Action Bar */}
       <AnimatePresence>
@@ -1246,6 +1350,8 @@ export default function Session() {
               </motion.div>
             ))}
           </div>
+
+          {muscleLoad && muscleLoad.entries.length > 0 && <MuscleHeatmap summary={muscleLoad} />}
 
           {/* Coach's Note Box */}
           <CoachNote

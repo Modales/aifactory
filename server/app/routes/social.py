@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..deps import get_current_user
+from ..muscle_load import normalize_muscle_load
 from ..orm import (
     ActivityCommentRecord,
     ActivityReactionRecord,
@@ -71,10 +72,12 @@ async def _activity_schema(db: AsyncSession, activity: ActivityRecord, viewer_id
         caption=activity.caption,
         visibility=activity.visibility,
         workout=ActivityWorkout(
+            exerciseId=workout.exercise_id,
             exerciseName=workout.exercise_name,
             totalReps=workout.total_reps,
             durationSeconds=workout.duration_seconds,
             avgFormScore=workout.avg_form_score,
+            muscleLoad=normalize_muscle_load(workout.muscle_load),
         ) if workout else None,
         reactionCount=reactions,
         commentCount=comments,

@@ -71,6 +71,7 @@ class WorkoutSessionRecord(Base):
     total_reps: Mapped[int] = mapped_column(Integer)
     avg_form_score: Mapped[float] = mapped_column(Float)
     peak_effort: Mapped[float] = mapped_column(Float)
+    muscle_load: Mapped[dict] = mapped_column(JSON, default=dict)
     reps: Mapped[list] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 

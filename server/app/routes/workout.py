@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..deps import get_optional_user
+from ..muscle_load import normalize_muscle_load
 from ..orm import UserRecord, WorkoutSessionRecord
 from ..schemas import EndSessionPayload, SessionCreated, WorkoutSummary
 
@@ -24,6 +25,7 @@ async def create_session(
         total_reps=payload.totalReps,
         avg_form_score=payload.avgFormScore,
         peak_effort=payload.peakEffort,
+        muscle_load=payload.muscleLoad.model_dump(),
         reps=[rep.model_dump() for rep in payload.reps],
     )
     db.add(record)
@@ -52,6 +54,7 @@ async def get_summary(
         totalReps=record.total_reps,
         avgFormScore=record.avg_form_score,
         peakEffort=record.peak_effort,
+        muscleLoad=normalize_muscle_load(record.muscle_load),
         reps=record.reps,
         createdAt=record.created_at,
     )

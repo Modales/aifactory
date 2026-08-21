@@ -7,6 +7,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import MuscleHeatmap from '@/components/MuscleHeatmap'
 import { api } from '@/lib/api'
 import type { HistoryItem, TelemetryLog } from '@/lib/api'
 

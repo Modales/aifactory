@@ -18,6 +18,21 @@ class RepData(BaseModel):
     flaws: list[str] = []
 
 
+class MuscleLoadEntry(BaseModel):
+    id: str
+    name: str
+    score: int = Field(ge=0, le=100)
+    role: Literal["primary", "secondary"]
+
+
+class MuscleLoadSummary(BaseModel):
+    modelVersion: str
+    source: Literal["biomechanical-estimate"]
+    confidence: Literal["moderate", "low"]
+    entries: list[MuscleLoadEntry]
+    disclaimer: str
+
+
 class EndSessionPayload(BaseModel):
     exerciseId: str
     exerciseName: str
@@ -26,6 +41,7 @@ class EndSessionPayload(BaseModel):
     totalReps: int
     avgFormScore: float
     peakEffort: float
+    muscleLoad: MuscleLoadSummary
     reps: list[RepData]
 
 
@@ -43,6 +59,7 @@ class WorkoutSummary(BaseModel):
     totalReps: int
     avgFormScore: float
     peakEffort: float
+    muscleLoad: MuscleLoadSummary
     reps: list[RepData]
     createdAt: datetime
 
@@ -100,6 +117,7 @@ class HistoryItem(BaseModel):
     totalReps: int
     avgFormScore: float
     peakEffort: float
+    muscleLoad: MuscleLoadSummary
     createdAt: datetime
 
 
@@ -115,6 +133,7 @@ class TelemetryLog(BaseModel):
     exerciseId: str
     exerciseName: str
     recordedAt: datetime
+    muscleLoad: MuscleLoadSummary
     reps: list[RepData]
     flawCounts: dict[str, int]
 
@@ -156,10 +175,12 @@ class ActivityAuthor(BaseModel):
 
 
 class ActivityWorkout(BaseModel):
+    exerciseId: str
     exerciseName: str
     totalReps: int
     durationSeconds: float
     avgFormScore: float
+    muscleLoad: MuscleLoadSummary
 
 
 class ActivityComment(BaseModel):

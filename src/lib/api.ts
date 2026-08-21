@@ -1,4 +1,5 @@
 import type { RepData } from './simulation'
+import type { MuscleLoadSummary } from './muscleModel'
 
 export const API_BASE_URL =
   (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://127.0.0.1:4000'
@@ -28,6 +29,7 @@ export interface HistoryItem {
   totalReps: number
   avgFormScore: number
   peakEffort: number
+  muscleLoad: MuscleLoadSummary
   createdAt: string
 }
 
@@ -68,7 +70,7 @@ export interface SocialActivity {
   author: SocialAuthor
   caption: string
   visibility: 'public' | 'followers'
-  workout: { exerciseName: string; totalReps: number; durationSeconds: number; avgFormScore: number } | null
+  workout: { exerciseId: string; exerciseName: string; totalReps: number; durationSeconds: number; avgFormScore: number; muscleLoad: MuscleLoadSummary } | null
   reactionCount: number
   commentCount: number
   reactedByMe: boolean
@@ -121,6 +123,7 @@ export interface TelemetryLog {
   exerciseId: string
   exerciseName: string
   recordedAt: string
+  muscleLoad: MuscleLoadSummary
   reps: RepData[]
   flawCounts: Record<string, number>
 }
@@ -133,6 +136,7 @@ export interface SessionPayload {
   totalReps: number
   avgFormScore: number
   peakEffort: number
+  muscleLoad: MuscleLoadSummary
   reps: RepData[]
 }
 
