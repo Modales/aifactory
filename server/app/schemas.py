@@ -41,7 +41,18 @@ class EndSessionPayload(BaseModel):
     totalReps: int
     avgFormScore: float
     peakEffort: float
-    muscleLoad: MuscleLoadSummary
+    muscleLoad: MuscleLoadSummary = Field(
+        default_factory=lambda: MuscleLoadSummary(
+            modelVersion="1.0",
+            source="biomechanical-estimate",
+            confidence="low",
+            entries=[],
+            disclaimer=(
+                "Estimated training demand from confirmed exercise, observed joint motion, "
+                "rep volume, and form—not a direct EMG or muscle-force measurement."
+            ),
+        )
+    )
     reps: list[RepData]
 
 

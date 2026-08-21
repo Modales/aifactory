@@ -86,6 +86,11 @@ function FeedCard({ item, onReact }: { item: SocialActivity; onReact: (id: strin
               <p className="text-xl font-black">{item.workout.totalReps} <span className="mono-data text-[9px]">REPS</span></p>
               <p className="mono-data text-[9px] text-muted-foreground">FORM {Math.round(item.workout.avgFormScore)} · {formatDuration(item.workout.durationSeconds)}</p>
             </div>
+            {item.workout.muscleLoad.entries.length > 0 && (
+              <div className="col-span-2">
+                <MuscleHeatmap summary={item.workout.muscleLoad} compact />
+              </div>
+            )}
           </div>
         )}
       </div>

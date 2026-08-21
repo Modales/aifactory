@@ -58,6 +58,8 @@ function TelemetryBody({ session }: { session: HistoryItem }) {
 
   return (
     <>
+      {log.muscleLoad.entries.length > 0 && <MuscleHeatmap summary={log.muscleLoad} />}
+
       {Object.keys(log.flawCounts).length > 0 && (
         <div className="border-2 border-foreground bg-secondary/40 p-3">
           <p className="mono-data text-[10px] tracking-[0.25em] text-muted-foreground">
