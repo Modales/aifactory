@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router'
+import { Link, useLocation, useNavigate } from 'react-router'
 import {
   ArrowRight,
   ChevronRight,
@@ -9,16 +9,19 @@ import {
   Loader2,
   Lock,
   MessageCircle,
+  Sparkles,
   Trophy,
   Users,
 } from 'lucide-react'
 import WorkspaceHeader from '@/components/WorkspaceHeader'
+import OnboardingWizard from '@/components/OnboardingWizard'
 import WorkoutVolumeTrend from '@/components/WorkoutVolumeTrend'
 import MuscleHeatmap from '@/components/MuscleHeatmap'
 import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
 import type { HistoryItem, HistoryStats, SocialActivity, SocialChallenge, SocialClub } from '@/lib/api'
 import { useAuth } from '@/lib/authContext'
+import { getStoredOnboarding } from '@/lib/workoutStore'
 
 function relativeTime(value: string): string {
   const minutes = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 60_000))
@@ -92,16 +95,24 @@ function FeedCard({ item, onReact }: { item: SocialActivity; onReact: (id: strin
 export default function Terminal() {
   const { user, status } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
   const [stats, setStats] = useState<HistoryStats | null>(null)
   const [workouts, setWorkouts] = useState<HistoryItem[]>([])
   const [feed, setFeed] = useState<SocialActivity[]>([])
   const [clubs, setClubs] = useState<SocialClub[]>([])
   const [challenges, setChallenges] = useState<SocialChallenge[]>([])
   const [loading, setLoading] = useState(true)
+  const [needsOnboarding, setNeedsOnboarding] = useState(() => !getStoredOnboarding().completed)
+  const [showOnboarding, setShowOnboarding] = useState(false)
 
   useEffect(() => {
     if (status === 'anonymous') navigate('/login', { replace: true, state: { from: '/dashboard' } })
   }, [status, navigate])
+
+  useEffect(() => {
+    if (location.hash !== '#social') return
+    requestAnimationFrame(() => document.getElementById('social')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+  }, [location.hash])
 
   useEffect(() => {
     if (status !== 'authenticated') return
@@ -140,6 +151,12 @@ export default function Terminal() {
       <div className="mx-auto grid max-w-7xl gap-8 px-4 py-8 lg:grid-cols-[minmax(0,1fr)_280px]">
         <main className="min-w-0">
           <div className="flex items-end justify-between gap-4"><div><p className="mono-data text-[10px] tracking-[0.24em] text-primary">COMMAND CENTER / 01</p><h1 className="mt-2 text-4xl font-black uppercase leading-none">Your <span className="font-serifit normal-case italic text-primary">dashboard.</span></h1></div><p className="hidden max-w-40 text-right text-xs text-muted-foreground sm:block">Your training, your crew, your next target.</p></div>
+          {needsOnboarding && (
+            <section className="mt-7 flex flex-col gap-4 border-2 border-foreground bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-3"><Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-primary" /><div><p className="mono-data text-[9px] tracking-[0.2em] text-primary">ATHLETE SETUP</p><p className="mt-1 text-sm font-bold">Tune FormFit around your training.</p><p className="mt-1 text-xs text-muted-foreground">Set your experience, focus movements, and coaching sensitivity before your first set.</p></div></div>
+              <Button onClick={() => setShowOnboarding(true)} className="shrink-0 border-2 border-foreground font-bold">COMPLETE SETUP</Button>
+            </section>
+          )}
           <section className="mt-7 grid grid-cols-2 gap-3 xl:grid-cols-4"><Stat label="TOTAL SESSIONS" value={String(stats?.totalSessions ?? 0)} /><Stat label="TOTAL REPS" value={String(stats?.totalReps ?? 0)} accent /><Stat label="AVG FORM" value={stats ? `${Math.round(stats.avgFormScore)}` : '—'} /><Stat label="CREW" value={String(joinedClubs.length)} /></section>
           <WorkoutVolumeTrend workouts={workouts} />
 
@@ -155,6 +172,15 @@ export default function Terminal() {
           <Link to="/history" className="mt-8 flex items-center justify-between border-2 border-foreground bg-foreground p-4 text-background transition-transform hover:-translate-y-0.5"><div><p className="mono-data text-[9px] tracking-[0.18em] text-primary">PERSONAL RECORD</p><p className="mt-1 text-sm font-bold">Review your training log</p></div><ArrowRight className="h-4 w-4" /></Link>
         </aside>
       </div>
+
+      <OnboardingWizard
+        isOpen={showOnboarding}
+        onClose={() => setShowOnboarding(false)}
+        onComplete={() => {
+          setNeedsOnboarding(false)
+          setShowOnboarding(false)
+        }}
+      />
     </div>
   )
 }

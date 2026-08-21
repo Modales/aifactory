@@ -15,6 +15,10 @@ export default function AppNavigation() {
     ? 'social'
     : location.pathname.slice(1) || 'dashboard'
 
+  const scrollToSocial = () => {
+    window.setTimeout(() => document.getElementById('social')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+  }
+
   return (
     <nav
       aria-label="Athlete workspace"
@@ -28,8 +32,9 @@ export default function AppNavigation() {
             key={label}
             to={to}
             aria-current={selected ? 'page' : undefined}
-            className={`flex min-w-0 flex-col items-center gap-1 px-2 py-2 text-[9px] font-bold uppercase tracking-wide md:flex-row md:gap-2 md:px-3 md:text-xs ${
-              selected ? 'bg-primary text-primary-foreground md:bg-primary/10 md:text-foreground' : 'text-muted-foreground hover:text-foreground'
+            onClick={match === 'social' ? scrollToSocial : undefined}
+            className={`flex min-w-0 flex-col items-center gap-1 px-2 py-2 text-[9px] font-bold uppercase tracking-wide lg:flex-row lg:gap-2 lg:px-3 lg:text-xs ${
+              selected ? 'bg-primary text-primary-foreground lg:bg-primary/10 lg:text-foreground' : 'text-muted-foreground hover:text-foreground'
             }`}
           >
             <Icon className="h-4 w-4 shrink-0" />
