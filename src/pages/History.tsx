@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { motion } from 'framer-motion'
 import { ArrowRight, Loader2 } from 'lucide-react'
-import AppNavigation from '@/components/AppNavigation'
+import WorkspaceHeader from '@/components/WorkspaceHeader'
 import { Button } from '@/components/ui/button'
 import TelemetryDialog from '@/components/TelemetryDialog'
 import { api } from '@/lib/api'
@@ -91,24 +91,19 @@ export default function HistoryPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background pb-16 md:pb-0">
+    <div className="min-h-screen bg-background pb-16 lg:pb-0">
       <div className="noise" />
 
-      <header className="sticky top-0 z-40 border-b-2 border-foreground bg-background/90 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
-          <Link to="/" className="text-xl font-bold tracking-tight">
-            FORMFIT<span className="text-primary">*</span>
+      <WorkspaceHeader
+        status={<span className="mono-data truncate text-[9px] tracking-[0.15em] text-primary">{user?.displayName.toUpperCase()} · TRAINING LOG</span>}
+        actions={
+          <Link to="/session">
+            <Button className="hard-shadow-sm border-2 border-foreground font-bold transition-transform hover:-translate-y-0.5">
+              START A SET <ArrowRight className="ml-1 h-4 w-4" />
+            </Button>
           </Link>
-          <div className="flex items-center gap-2">
-            <AppNavigation />
-            <Link to="/session">
-              <Button className="hard-shadow-sm border-2 border-foreground font-bold transition-transform hover:-translate-y-0.5">
-                START A SET <ArrowRight className="ml-1 h-4 w-4" />
-              </Button>
-            </Link>
-          </div>
-        </div>
-      </header>
+        }
+      />
 
       <main className="mx-auto max-w-7xl px-4 py-10">
         <motion.div

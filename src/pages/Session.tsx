@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Activity,
-  ArrowLeft,
   Camera,
   CircleStop,
   Flame,
@@ -49,6 +47,7 @@ import { saveSessionToHistory, useUserSettings } from '@/lib/workoutStore'
 import { api, getStoredToken, waitForCoachSummary, type CoachSummary } from '@/lib/api'
 import CoachNote, { type CoachNoteState } from '@/components/CoachNote'
 import MuscleHeatmap from '@/components/MuscleHeatmap'
+import WorkspaceHeader from '@/components/WorkspaceHeader'
 import { estimateMuscleLoad } from '@/lib/muscleModel'
 import {
   EXERCISES,
@@ -658,37 +657,29 @@ export default function Session() {
     <div className="min-h-screen touch-manipulation bg-background pb-24 lg:pb-0">
       <div className="noise" />
 
-      {/* Header */}
-      <header className="sticky top-0 z-40 border-b-2 border-foreground bg-background/90 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-2">
-            <Link to="/">
-              <Button variant="ghost" size="icon" aria-label="Back home" className="border-2 border-transparent hover:border-foreground">
-                <ArrowLeft className="h-5 w-5" />
-              </Button>
-            </Link>
-            <span className="text-xl font-bold tracking-tight">
-              FORMFIT<span className="text-primary">*</span>
-            </span>
+      <WorkspaceHeader
+        status={
+          <>
             {isOffline && (
-              <span className="mono-data border-2 border-amber-600 bg-amber-500/10 px-2 py-0.5 text-[9px] font-semibold text-amber-700 tracking-[0.15em] flex items-center gap-1">
+              <span className="mono-data flex items-center gap-1 border-2 border-amber-600 bg-amber-500/10 px-2 py-0.5 text-[9px] font-semibold tracking-[0.15em] text-amber-700">
                 <WifiOff className="h-3 w-3" /> OFFLINE EDGE MODE
               </span>
             )}
             {source && phase !== 'setup' && (
-              <span className="mono-data hidden border-2 border-foreground bg-secondary px-2 py-0.5 text-[9px] font-semibold tracking-[0.25em] sm:inline-block">
+              <span className="mono-data border-2 border-foreground bg-secondary px-2 py-0.5 text-[9px] font-semibold tracking-[0.25em]">
                 {source === 'demo' ? 'SIMULATED ANALYSIS' : 'REAL POSE TRACKING'}
               </span>
             )}
-          </div>
-
-          <div className="flex items-center gap-3">
+          </>
+        }
+        actions={
+          <>
             <SettingsModal />
             {phase === 'ended' && !summaryOpen && (
               <Button
                 size="sm"
                 onClick={() => setSummaryOpen(true)}
-                className="hard-shadow-sm border-2 border-foreground bg-primary text-primary-foreground font-mono text-xs font-bold"
+                className="hard-shadow-sm border-2 border-foreground bg-primary font-mono text-xs font-bold text-primary-foreground"
               >
                 REOPEN SUMMARY
               </Button>
@@ -708,9 +699,9 @@ export default function Session() {
                 </Button>
               </div>
             )}
-          </div>
-        </div>
-      </header>
+          </>
+        }
+      />
 
       <main className="mx-auto max-w-7xl px-4 py-4 lg:py-6">
         <div className="lg:grid lg:grid-cols-3 lg:gap-6">
@@ -1282,7 +1273,7 @@ export default function Session() {
             animate={{ y: 0 }}
             exit={{ y: 80 }}
             transition={{ type: 'spring', stiffness: 300, damping: 28 }}
-            className="fixed inset-x-0 bottom-0 z-40 border-t-2 border-foreground bg-background lg:hidden"
+            className="fixed inset-x-0 bottom-14 z-40 border-t-2 border-foreground bg-background lg:hidden"
             style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
           >
             <div className="flex items-center justify-between gap-3 px-4 py-3">

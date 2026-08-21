@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { Check, ChevronRight, HeartPulse, Loader2, Lock, Smartphone } from 'lucide-react'
-import AppNavigation from '@/components/AppNavigation'
+import WorkspaceHeader from '@/components/WorkspaceHeader'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/lib/authContext'
 
@@ -25,15 +25,10 @@ export default function Wearables() {
   if (status !== 'authenticated') return <div className="flex min-h-screen items-center justify-center"><Loader2 className="h-6 w-6 animate-spin" /></div>
 
   return (
-    <div className="min-h-screen bg-background pb-16 md:pb-0">
+    <div className="min-h-screen bg-background pb-16 lg:pb-0">
       <div className="noise" />
-      <header className="border-b-2 border-foreground bg-background/95">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-          <Link to="/" className="text-xl font-bold tracking-tight">FORMFIT<span className="text-primary">*</span></Link>
-          <AppNavigation />
-        </div>
-      </header>
-      <main className="mx-auto max-w-6xl px-4 py-10 sm:py-16">
+      <WorkspaceHeader />
+      <main className="mx-auto max-w-7xl px-4 py-10 sm:py-16">
         <div className="max-w-2xl"><p className="mono-data text-[10px] tracking-[0.25em] text-primary">CONNECTED DEVICES / 04</p><h1 className="mt-3 text-4xl font-black uppercase leading-none sm:text-6xl">Train with the<br /><span className="font-serifit normal-case italic text-primary">full signal.</span></h1><p className="mt-5 max-w-xl text-muted-foreground">Connect the biometric signals around your lifts—then pair form, effort, and recovery in one training record.</p></div>
 
         <section className="mt-10 grid gap-4 lg:grid-cols-3">

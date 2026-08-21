@@ -6,6 +6,7 @@ const items = [
   { label: 'Social', to: '/dashboard#social', icon: Users, match: 'social' },
   { label: 'History', to: '/history', icon: History, match: 'history' },
   { label: 'Wearables', to: '/wearables', icon: HeartPulse, match: 'wearables' },
+  { label: 'Live set', to: '/session', icon: Activity, match: 'session' },
 ] as const
 
 export default function AppNavigation() {
@@ -17,7 +18,7 @@ export default function AppNavigation() {
   return (
     <nav
       aria-label="Athlete workspace"
-      className="fixed inset-x-0 bottom-0 z-50 grid grid-cols-4 border-t-2 border-foreground bg-background md:static md:flex md:border-0"
+      className="fixed inset-x-0 bottom-0 z-50 grid grid-cols-5 border-t-2 border-foreground bg-background lg:static lg:flex lg:border-0"
       style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
     >
       {items.map(({ label, to, icon: Icon, match }) => {
@@ -36,12 +37,6 @@ export default function AppNavigation() {
           </Link>
         )
       })}
-      <Link
-        to="/session"
-        className="hidden items-center gap-2 px-3 py-2 text-xs font-bold uppercase text-muted-foreground hover:text-foreground lg:flex"
-      >
-        <Activity className="h-4 w-4" /> Live set
-      </Link>
     </nav>
   )
 }
