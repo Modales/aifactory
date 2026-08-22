@@ -117,7 +117,7 @@ export default function Terminal() {
   useEffect(() => {
     if (status !== 'authenticated') return
     let cancelled = false
-    Promise.all([api.stats(), api.history({ limit: 100 }), api.socialFeed(), api.clubs(), api.challenges()])
+    Promise.all([api.stats(), api.history({ limit: 100 }), api.socialFeed({ limit: 30 }), api.clubs(), api.challenges()])
       .then(([nextStats, history, nextFeed, nextClubs, nextChallenges]) => {
         if (cancelled) return
         setStats(nextStats)

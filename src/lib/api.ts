@@ -254,7 +254,13 @@ export const api = {
 
   summaryJob: (jobId: string) =>
     request<CoachSummary>(`/api/workout/generate-summary/${jobId}`),
-  socialFeed: () => request<SocialFeed>('/api/social/feed'),
+  socialFeed: (params: { limit?: number; offset?: number } = {}) => {
+    const query = new URLSearchParams()
+    if (params.limit !== undefined) query.set('limit', String(params.limit))
+    if (params.offset !== undefined) query.set('offset', String(params.offset))
+    const suffix = query.toString() ? `?${query}` : ''
+    return request<SocialFeed>(`/api/social/feed${suffix}`)
+  },
   clubs: () => request<SocialClub[]>('/api/social/clubs'),
   challenges: () => request<SocialChallenge[]>('/api/social/challenges'),
   reactToActivity: (activityId: string) =>
