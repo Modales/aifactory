@@ -47,6 +47,7 @@ import { saveSessionToHistory, useUserSettings } from '@/lib/workoutStore'
 import { api, getStoredToken, waitForCoachSummary, type CoachSummary, type SessionPayload } from '@/lib/api'
 import CoachNote, { type CoachNoteState } from '@/components/CoachNote'
 import MuscleHeatmap from '@/components/MuscleHeatmap'
+import WorkoutSummaryCard from '@/components/WorkoutSummaryCard'
 import WorkspaceHeader from '@/components/WorkspaceHeader'
 import { aggregateMuscleLoad, estimateMuscleLoad } from '@/lib/muscleModel'
 import {
@@ -1325,13 +1326,7 @@ export default function Session() {
             </DialogDescription>
           </DialogHeader>
 
-          {workoutComplete && (
-            <section className="space-y-4 border-2 border-foreground bg-secondary/30 p-4">
-              <div className="flex items-end justify-between gap-3"><div><p className="mono-data text-[10px] font-bold tracking-[0.2em] text-primary">FULL WORKOUT LOGGED</p><p className="mt-1 text-sm text-muted-foreground">{workoutSets.length} sets · {workoutSets.reduce((total, set) => total + set.totalReps, 0)} reps</p></div><p className="mono-data text-2xl font-bold">{Math.round(workoutSets.reduce((total, set) => total + set.avgFormScore, 0) / Math.max(workoutSets.length, 1))}</p></div>
-              <MuscleHeatmap summary={workoutMuscleLoad} />
-              <div className="grid gap-3 sm:grid-cols-2">{workoutSets.map((set, index) => <div key={`${set.exerciseId}-${index}`} className="border-2 border-foreground bg-background p-3"><div className="flex justify-between gap-2"><p className="font-bold">SET {index + 1} · {set.exerciseName}</p><span className="mono-data text-xs">{set.avgFormScore} FORM</span></div><p className="mono-data mt-1 text-[10px] text-muted-foreground">{set.totalReps} REPS · {Math.round(set.durationSeconds)} SEC</p><div className="mt-3"><MuscleHeatmap summary={set.muscleLoad} compact /></div></div>)}</div>
-            </section>
-          )}
+          {workoutComplete && <WorkoutSummaryCard sets={workoutSets} muscleLoad={workoutMuscleLoad} />}
 
           {syncState !== 'idle' && (
             <p
