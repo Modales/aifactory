@@ -33,6 +33,10 @@ def create_app(
                     "ALTER TABLE workout_sessions "
                     "ADD COLUMN IF NOT EXISTS muscle_load JSON NOT NULL DEFAULT '{}'"
                 ))
+                await conn.execute(text(
+                    "ALTER TABLE workout_sessions "
+                    "ADD COLUMN IF NOT EXISTS workout_id VARCHAR"
+                ))
         yield
 
     app = FastAPI(title="aifactory-server", lifespan=lifespan)

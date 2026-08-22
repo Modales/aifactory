@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { motion } from 'framer-motion'
 import { ArrowRight, Loader2 } from 'lucide-react'
@@ -52,7 +52,15 @@ export default function HistoryPage() {
   const [offset, setOffset] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [selected, setSelected] = useState<HistoryItem | null>(null)
+  const [selected, setSelected] = useState<HistoryItem[] | null>(null)
+  const workoutSessions = useMemo(() => {
+    const grouped = new Map<string, HistoryItem[]>()
+    items.forEach((item) => {
+      const key = item.workoutId ?? item.id
+      grouped.set(key, [...(grouped.get(key) ?? []), item])
+    })
+    return [...grouped.values()]
+  }, [items])
 
   useEffect(() => {
     if (status === 'anonymous') navigate('/login', { replace: true, state: { from: '/history' } })
@@ -182,56 +190,24 @@ export default function HistoryPage() {
               </Link>
             </div>
           ) : (
-            <div className="hard-shadow overflow-x-auto border-2 border-foreground bg-card">
-              <table className="w-full min-w-[720px] text-left">
-                <thead className="border-b-2 border-foreground bg-foreground text-background">
-                  <tr className="mono-data text-[10px] tracking-[0.2em]">
-                    <th className="px-4 py-3 font-medium">DATE</th>
-                    <th className="px-4 py-3 font-medium">EXERCISE</th>
-                    <th className="px-4 py-3 font-medium">ANGLE</th>
-                    <th className="px-4 py-3 text-right font-medium">REPS</th>
-                    <th className="px-4 py-3 text-right font-medium">DURATION</th>
-                    <th className="px-4 py-3 text-right font-medium">AVG FORM</th>
-                    <th className="px-4 py-3 text-right font-medium">PEAK EFFORT</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map((item, i) => (
-                    <tr
-                      key={item.id}
-                      onClick={() => setSelected(item)}
-                      className={`cursor-pointer transition-colors hover:bg-primary/10 ${
-                        i % 2 === 1 ? 'bg-secondary/40' : ''
-                      }`}
-                    >
-                      <td className="mono-data px-4 py-3 text-xs text-muted-foreground">
-                        {formatDate(item.createdAt)}
-                      </td>
-                      <td className="px-4 py-3 font-bold">{item.exerciseName}</td>
-                      <td className="mono-data px-4 py-3 text-xs">{item.cameraAngle}</td>
-                      <td className="px-4 py-3 text-right font-bold tabular-nums">
-                        {item.totalReps}
-                      </td>
-                      <td className="mono-data px-4 py-3 text-right text-xs tabular-nums">
-                        {formatDuration(item.durationSeconds)}
-                      </td>
-                      <td
-                        className={`px-4 py-3 text-right font-bold tabular-nums ${scoreTone(item.avgFormScore)}`}
-                      >
-                        {Math.round(item.avgFormScore)}
-                      </td>
-                      <td className="px-4 py-3 text-right font-bold tabular-nums">
-                        {Math.round(item.peakEffort)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {workoutSessions.map((sets) => {
+                const totalReps = sets.reduce((sum, set) => sum + set.totalReps, 0)
+                const duration = sets.reduce((sum, set) => sum + set.durationSeconds, 0)
+                const avgForm = sets.reduce((sum, set) => sum + set.avgFormScore, 0) / sets.length
+                const exercises = [...new Set(sets.map((set) => set.exerciseName))]
+                return <button key={sets[0].workoutId ?? sets[0].id} type="button" onClick={() => setSelected(sets)} className="hard-shadow border-2 border-foreground bg-card p-4 text-left transition-transform hover:-translate-y-1 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+                  <div className="flex items-start justify-between gap-3"><div><p className="mono-data text-[10px] tracking-[0.2em] text-muted-foreground">{formatDate(sets[0].createdAt)}</p><h3 className="mt-1 text-xl font-black uppercase">Workout session</h3></div><span className="mono-data border-2 border-foreground bg-primary px-2 py-1 text-[10px] font-bold text-primary-foreground">{sets.length} {sets.length === 1 ? 'SET' : 'SETS'}</span></div>
+                  <p className="mt-3 min-h-10 text-sm font-bold">{exercises.join(' · ')}</p>
+                  <div className="mt-4 grid grid-cols-3 border-t-2 border-foreground pt-3 text-center"><div><p className="text-xl font-black">{totalReps}</p><p className="mono-data text-[8px] text-muted-foreground">REPS</p></div><div><p className={scoreTone(avgForm)}>{Math.round(avgForm)}</p><p className="mono-data text-[8px] text-muted-foreground">AVG FORM</p></div><div><p className="text-xl font-black">{formatDuration(duration)}</p><p className="mono-data text-[8px] text-muted-foreground">DURATION</p></div></div>
+                  <p className="mono-data mt-4 text-[9px] font-bold tracking-[0.16em] text-primary">VIEW ALL WORKOUTS, SETS &amp; REPS →</p>
+                </button>
+              })}
             </div>
           )}
           {items.length > 0 && (
             <p className="mono-data mt-3 text-[10px] tracking-[0.2em] text-muted-foreground">
-              CLICK A ROW FOR REP-BY-REP TELEMETRY
+              CLICK A SESSION CARD FOR EVERY SET AND REP
             </p>
           )}
         </div>
@@ -269,7 +245,7 @@ export default function HistoryPage() {
         )}
       </main>
 
-      <TelemetryDialog session={selected} onClose={() => setSelected(null)} />
+      <TelemetryDialog sessions={selected} onClose={() => setSelected(null)} />
     </div>
   )
 }

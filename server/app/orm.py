@@ -64,6 +64,7 @@ class WorkoutSessionRecord(Base):
     user_id: Mapped[str | None] = mapped_column(
         String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    workout_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     exercise_id: Mapped[str] = mapped_column(String)
     exercise_name: Mapped[str] = mapped_column(String)
     camera_angle: Mapped[str] = mapped_column(String)

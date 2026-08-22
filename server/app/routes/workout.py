@@ -18,6 +18,7 @@ async def create_session(
 ):
     record = WorkoutSessionRecord(
         user_id=user.id if user is not None else None,
+        workout_id=payload.workoutId,
         exercise_id=payload.exerciseId,
         exercise_name=payload.exerciseName,
         camera_angle=payload.cameraAngle,

@@ -34,6 +34,7 @@ class MuscleLoadSummary(BaseModel):
 
 
 class EndSessionPayload(BaseModel):
+    workoutId: str | None = None
     exerciseId: str
     exerciseName: str
     cameraAngle: str
@@ -121,6 +122,7 @@ class UserProfile(ProfilePayload):
 
 class HistoryItem(BaseModel):
     id: str
+    workoutId: str | None = None
     exerciseId: str
     exerciseName: str
     cameraAngle: str

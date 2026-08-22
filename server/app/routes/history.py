@@ -24,6 +24,7 @@ router = APIRouter(prefix="/api/workouts", tags=["history"])
 def _to_item(record: WorkoutSessionRecord) -> HistoryItem:
     return HistoryItem(
         id=record.id,
+        workoutId=record.workout_id,
         exerciseId=record.exercise_id,
         exerciseName=record.exercise_name,
         cameraAngle=record.camera_angle,

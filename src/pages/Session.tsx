@@ -105,6 +105,7 @@ export default function Session() {
   const [coachState, setCoachState] = useState<CoachNoteState>('offline')
   const [coachSummary, setCoachSummary] = useState<CoachSummary | null>(null)
   const coachAbandonedRef = useRef(false)
+  const workoutIdRef = useRef(crypto.randomUUID())
   const [summaryTab, setSummaryTab] = useState<'table' | 'graphs'>('table')
   const [tab, setTab] = useState<MobileTab>('coach')
   const [countdownVal, setCountdownVal] = useState<number>(3)
@@ -446,6 +447,7 @@ export default function Session() {
     setPhase('ended')
     if (exercise && repsRef.current.length > 0) {
       setPendingSet({
+        workoutId: workoutIdRef.current,
         exerciseName: exercise.name,
         exerciseId: exercise.id,
         cameraAngle: angle || exercise.bestAngle,
@@ -515,6 +517,7 @@ export default function Session() {
     setCoachSummary(null)
     setPendingSet(null)
     setWorkoutSets([])
+    workoutIdRef.current = crypto.randomUUID()
     setWorkoutComplete(false)
   }
 

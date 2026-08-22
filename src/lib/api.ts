@@ -22,6 +22,7 @@ export interface AuthToken {
 
 export interface HistoryItem {
   id: string
+  workoutId: string | null
   exerciseId: string
   exerciseName: string
   cameraAngle: string
@@ -129,6 +130,7 @@ export interface TelemetryLog {
 }
 
 export interface SessionPayload {
+  workoutId?: string
   exerciseId: string
   exerciseName: string
   cameraAngle: string
