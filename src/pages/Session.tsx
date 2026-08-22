@@ -44,11 +44,11 @@ import { extractFrameAngles } from '@/lib/pose/jointAngles'
 import { audioEngine } from '@/lib/audioEngine'
 import { TechniqueCoach } from '@/lib/techniqueCoach'
 import { saveSessionToHistory, useUserSettings } from '@/lib/workoutStore'
-import { api, getStoredToken, waitForCoachSummary, type CoachSummary } from '@/lib/api'
+import { api, getStoredToken, waitForCoachSummary, type CoachSummary, type SessionPayload } from '@/lib/api'
 import CoachNote, { type CoachNoteState } from '@/components/CoachNote'
 import MuscleHeatmap from '@/components/MuscleHeatmap'
 import WorkspaceHeader from '@/components/WorkspaceHeader'
-import { estimateMuscleLoad } from '@/lib/muscleModel'
+import { aggregateMuscleLoad, estimateMuscleLoad } from '@/lib/muscleModel'
 import {
   EXERCISES,
   angleForExercise,
@@ -97,6 +97,9 @@ export default function Session() {
   const [feed, setFeed] = useState<FeedItem[]>([])
   const [elapsed, setElapsed] = useState(0)
   const [summaryOpen, setSummaryOpen] = useState(false)
+  const [pendingSet, setPendingSet] = useState<SessionPayload | null>(null)
+  const [workoutSets, setWorkoutSets] = useState<SessionPayload[]>([])
+  const [workoutComplete, setWorkoutComplete] = useState(false)
   const [syncState, setSyncState] = useState<'idle' | 'saving' | 'saved' | 'failed'>('idle')
   const [coachState, setCoachState] = useState<CoachNoteState>('offline')
   const [coachSummary, setCoachSummary] = useState<CoachSummary | null>(null)
@@ -440,48 +443,62 @@ export default function Session() {
     clearTimers()
     audioEngine.cancelAll()
     setPhase('ended')
-    setSummaryOpen(true)
-
     if (exercise && repsRef.current.length > 0) {
-      const avgForm = Math.round(repsRef.current.reduce((a, r) => a + r.formScore, 0) / repsRef.current.length)
-      const peakEffort = Math.max(...repsRef.current.map((r) => r.effort))
-      const muscleLoad = estimateMuscleLoad(exercise.id, repsRef.current)
-      const payload = {
+      setPendingSet({
         exerciseName: exercise.name,
         exerciseId: exercise.id,
         cameraAngle: angle || exercise.bestAngle,
         durationSeconds: elapsed,
         totalReps: repsRef.current.length,
-        avgFormScore: avgForm,
-        peakEffort,
-        muscleLoad,
+        avgFormScore: Math.round(repsRef.current.reduce((sum, rep) => sum + rep.formScore, 0) / repsRef.current.length),
+        peakEffort: Math.max(...repsRef.current.map((rep) => rep.effort)),
+        muscleLoad: estimateMuscleLoad(exercise.id, repsRef.current),
         reps: repsRef.current,
-      }
-
-      saveSessionToHistory(payload)
-
-      if (getStoredToken()) {
-        setSyncState('saving')
-        coachAbandonedRef.current = false
-        api
-          .saveSession(payload)
-          .then(async ({ id }) => {
-            setSyncState('saved')
-            setCoachState('pending')
-            const job = await api.generateSummary(id)
-            const finished = await waitForCoachSummary(job.jobId, () => coachAbandonedRef.current)
-            if (coachAbandonedRef.current) return
-            setCoachSummary(finished)
-            setCoachState(finished.status === 'complete' ? 'complete' : 'failed')
-          })
-          .catch((err) => {
-            console.error('Failed to sync session to the backend', err)
-            if (coachAbandonedRef.current) return
-            setSyncState((s) => (s === 'saved' ? s : 'failed'))
-            setCoachState((s) => (s === 'pending' ? 'failed' : s))
-          })
-      }
+      })
     }
+    setSummaryOpen(true)
+  }
+
+  const persistSet = (payload: SessionPayload) => {
+    saveSessionToHistory({ ...payload, cameraAngle: payload.cameraAngle as CameraAngle })
+    if (!getStoredToken()) return
+    setSyncState('saving')
+    coachAbandonedRef.current = false
+    api.saveSession(payload)
+      .then(async ({ id }) => {
+        setSyncState('saved')
+        setCoachState('pending')
+        const job = await api.generateSummary(id)
+        const finished = await waitForCoachSummary(job.jobId, () => coachAbandonedRef.current)
+        if (!coachAbandonedRef.current) {
+          setCoachSummary(finished)
+          setCoachState(finished.status === 'complete' ? 'complete' : 'failed')
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to sync session to the backend', err)
+        if (!coachAbandonedRef.current) {
+          setSyncState('failed')
+          setCoachState((state) => state === 'pending' ? 'failed' : state)
+        }
+      })
+  }
+
+  const logSet = (finishWorkout: boolean) => {
+    if (!pendingSet) return
+    persistSet(pendingSet)
+    const sets = [...workoutSets, pendingSet]
+    setWorkoutSets(sets)
+    setPendingSet(null)
+    if (finishWorkout) {
+      setWorkoutComplete(true)
+      return
+    }
+    setSummaryOpen(false)
+    clearAnalysisData()
+    resetMedia()
+    setPhase('setup')
+    setDemoActive(false)
   }
 
   const reset = () => {
@@ -495,6 +512,9 @@ export default function Session() {
     setSyncState('idle')
     setCoachState('offline')
     setCoachSummary(null)
+    setPendingSet(null)
+    setWorkoutSets([])
+    setWorkoutComplete(false)
   }
 
   const currentExDef = EXERCISES.find((e) => e.id === selectedExerciseId) || EXERCISES[0]
@@ -511,6 +531,7 @@ export default function Session() {
   const avgForm = reps.length ? Math.round(reps.reduce((a, r) => a + r.formScore, 0) / reps.length) : 0
   const effort = latest?.effort ?? 0
   const muscleLoad = useMemo(() => exercise ? estimateMuscleLoad(exercise.id, reps) : null, [exercise, reps])
+  const workoutMuscleLoad = useMemo(() => aggregateMuscleLoad(workoutSets.map((set) => set.muscleLoad)), [workoutSets])
   const zone = zoneFor(effort)
   const toleranceMode = normalizeFormToleranceMode(settings.sensitivity)
   const liveFrameMetrics = useMemo(() => {
@@ -1297,12 +1318,20 @@ export default function Session() {
         <DialogContent className="hard-shadow max-h-[92dvh] overflow-y-auto border-2 border-foreground bg-card sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle className="font-serifit text-2xl italic">
-              Set summary — {exercise?.name}
+              {workoutComplete ? 'Workout complete' : `Set summary — ${exercise?.name ?? ''}`}
             </DialogTitle>
             <DialogDescription className="mono-data text-[10px] tracking-[0.25em]">
               {mm}:{ss} — {angle?.toUpperCase()} VIEW — TELEMETRY BREAKDOWN
             </DialogDescription>
           </DialogHeader>
+
+          {workoutComplete && (
+            <section className="space-y-4 border-2 border-foreground bg-secondary/30 p-4">
+              <div className="flex items-end justify-between gap-3"><div><p className="mono-data text-[10px] font-bold tracking-[0.2em] text-primary">FULL WORKOUT LOGGED</p><p className="mt-1 text-sm text-muted-foreground">{workoutSets.length} sets · {workoutSets.reduce((total, set) => total + set.totalReps, 0)} reps</p></div><p className="mono-data text-2xl font-bold">{Math.round(workoutSets.reduce((total, set) => total + set.avgFormScore, 0) / Math.max(workoutSets.length, 1))}</p></div>
+              <MuscleHeatmap summary={workoutMuscleLoad} />
+              <div className="grid gap-3 sm:grid-cols-2">{workoutSets.map((set, index) => <div key={`${set.exerciseId}-${index}`} className="border-2 border-foreground bg-background p-3"><div className="flex justify-between gap-2"><p className="font-bold">SET {index + 1} · {set.exerciseName}</p><span className="mono-data text-xs">{set.avgFormScore} FORM</span></div><p className="mono-data mt-1 text-[10px] text-muted-foreground">{set.totalReps} REPS · {Math.round(set.durationSeconds)} SEC</p><div className="mt-3"><MuscleHeatmap summary={set.muscleLoad} compact /></div></div>)}</div>
+            </section>
+          )}
 
           {syncState !== 'idle' && (
             <p
@@ -1391,16 +1420,12 @@ export default function Session() {
             )}
           </div>
 
-          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end pt-2">
-            <Button variant="outline" className="hard-shadow-sm h-11 border-2 font-bold" onClick={reset}>
-              NEW SET
-            </Button>
-            <Button
-              className="hard-shadow-sm h-11 border-2 border-foreground bg-foreground font-bold text-background hover:bg-foreground/90"
-              onClick={() => setSummaryOpen(false)}
-            >
-              CLOSE &amp; REVIEW
-            </Button>
+          <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-end">
+            {workoutComplete ? (
+              <Button className="hard-shadow-sm h-11 border-2 border-foreground bg-foreground font-bold text-background" onClick={reset}>START NEW WORKOUT</Button>
+            ) : (
+              <><Button variant="outline" className="hard-shadow-sm h-11 border-2 font-bold" onClick={() => logSet(false)} disabled={!pendingSet}>LOG SET &amp; CONTINUE</Button><Button className="hard-shadow-sm h-11 border-2 border-foreground bg-foreground font-bold text-background" onClick={() => logSet(true)} disabled={!pendingSet}>FINISH WORKOUT</Button></>
+            )}
           </div>
         </DialogContent>
       </Dialog>
