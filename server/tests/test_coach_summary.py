@@ -1,7 +1,7 @@
 import pytest
 
 from app.coach import (
-    AimlCoach,
+    OpenRouterCoach,
     CoachError,
     build_prompt,
     describe_api_error,
@@ -116,7 +116,7 @@ def test_out_of_funds_gets_an_actionable_message_from_the_raw_body():
     )
 
     assert "out of funds" in describe_api_error(exc)
-    assert "aimlapi.com/app/billing" in describe_api_error(exc)
+    assert "openrouter.ai/settings/credits" in describe_api_error(exc)
 
 
 def test_out_of_funds_is_recognised_when_the_sdk_unwraps_the_body():
@@ -132,15 +132,16 @@ def test_out_of_funds_is_recognised_when_the_sdk_unwraps_the_body():
     assert "out of funds" in describe_api_error(exc)
 
 
-def test_bad_key_and_unknown_model_get_their_own_messages():
+def test_bad_key_unknown_model_and_empty_balance_get_their_own_messages():
     assert "rejected the API key" in describe_api_error(FakeApiError(401, {}))
     assert "COACH_MODEL" in describe_api_error(FakeApiError(404, {}))
+    assert "out of funds" in describe_api_error(FakeApiError(402, {}))
 
 
-async def test_aiml_coach_fails_clearly_without_an_api_key():
-    coach = AimlCoach(None, "https://api.aimlapi.com/v1", "anthropic/claude-sonnet-4.6")
+async def test_openrouter_coach_fails_clearly_without_an_api_key():
+    coach = OpenRouterCoach(None, "https://openrouter.ai/api/v1", "openai/gpt-4o-mini")
 
-    with pytest.raises(CoachError, match="AIML_API_KEY"):
+    with pytest.raises(CoachError, match="OPENROUTER_API_KEY"):
         await coach(_session_record(), None)
 
 
