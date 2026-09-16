@@ -27,4 +27,6 @@ Verify: `curl -sf http://localhost:3000/` (frontend) and `curl -sf http://localh
 ## Quirks
 - The backend `load_dotenv()` is a no-op in compose (no committed `.env`); config falls back to compose `environment:`.
 - Vite config sets `server.host: true` and `allowedHosts: true` so the preview's external hostname is accepted.
-- The README says AI analysis is simulated in the browser (`src/lib/simulation.ts`); the real pose model is not wired in.
+- The README's simulation-only status is stale: `usePoseTracking` runs MediaPipe in the browser, with client-side exercise/rep analysis. `usePoseTelemetry` only publishes when `VITE_POSE_WS_URL` is configured; the Base44 compose does not configure it.
+- Social API routes already exist under `/api/social` for activities, follows, kudos, comments, clubs and challenges. Reuse and audit these rather than introducing a second social backend.
+- Revalidated Base44 compose on 2026-09-16: PostgreSQL and API health checks pass; port 3000 serves Vite source modules. On first boot, wait for the web dependency install after `compose up` returns.
