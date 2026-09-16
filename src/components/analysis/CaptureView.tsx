@@ -15,8 +15,6 @@ export default function CaptureView({ config, recording, epoch, overlapStart, on
   const [message, setMessage] = useState('Preparing source and pose model…')
   const [count, setCount] = useState(0)
   const lastMedia = useRef(-1)
-  const configRef = useRef(config)
-  configRef.current = config
   useEffect(() => {
     let cancelled = false
     let stream: MediaStream | null = null

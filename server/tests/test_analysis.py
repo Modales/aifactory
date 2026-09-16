@@ -3,7 +3,7 @@ from copy import deepcopy
 from math import cos, sin, pi
 import pytest
 from pydantic import ValidationError
-from app.analysis.engine import analyze, angle, classify, segments
+from app.analysis.engine import analyze, angle, classify, evaluate_rep, segments
 from app.analysis.schemas import AnalysisRequest
 from .conftest import SAMPLE_PAYLOAD
 
@@ -127,6 +127,24 @@ def test_gap_breaks_rep_continuity():
     assert segments(rows,'knee')==[]
 
 
+def test_single_landmark_outlier_cannot_manufacture_range():
+    rows = [{'t': i * 200, 'knee': 130, 'otherKnee': 130, 'alignment': None, 'stance': .3} for i in range(11)]
+    rows[5]['knee'] = 20
+    report = evaluate_rep('squat', 0, 2000, [{'id': 'side', 'view': 'side', 'rows': rows}])
+    assert report['checks'][0]['name'] == 'Observed range of motion'
+    assert report['checks'][0]['value'] == 130
+    assert not report['checks'][0]['passed']
+
+
+def test_multi_view_analysis_uses_only_shared_timeline():
+    frontal = squat_stream('front', 'frontal')
+    frontal['frames'] = frontal['frames'][40:]
+    result = analyze(payload(streams=[squat_stream(), frontal], synchronized=True))
+    assert result['repCount'] == 1
+    assert result['durationSeconds'] == 8
+    assert all(check['cameraId'] == 'front' for check in result['reps'][0]['checks'] if check['view'] == 'frontal')
+
+
 @pytest.mark.parametrize('exercise',['squat','lunge','deadlift','curl','ohp','bench'])
 def test_classifier_movement_signatures(exercise):
     rows=[]
@@ -178,7 +196,7 @@ async def test_analysis_requires_auth_and_reports_are_owned(app_and_client):
     assert history.json()['items'][0]['totalReps']==2
     assert history.json()['items'][0]['avgFormScore']==100
     log=await client.get(f"/api/workouts/history/{saved.json()['id']}/telemetry",headers=first)
-    assert log.json()['analysis']['modelVersion']=='pose-rules-1.0'
+    assert log.json()['analysis']['modelVersion']=='pose-rules-1.1'
     assert 'streams' not in log.json()['analysis']
     assert all('landmarks' not in view for view in log.json()['analysis']['views'])
 

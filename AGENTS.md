@@ -29,4 +29,6 @@ Verify: `curl -sf http://localhost:3000/` (frontend) and `curl -sf http://localh
 - Vite config sets `server.host: true` and `allowedHosts: true` so the preview's external hostname is accepted.
 - The README's simulation-only status is stale: `usePoseTracking` runs MediaPipe in the browser, with client-side exercise/rep analysis. `usePoseTelemetry` only publishes when `VITE_POSE_WS_URL` is configured; the Base44 compose does not configure it.
 - Social API routes already exist under `/api/social` for activities, follows, kudos, comments, clubs and challenges. Reuse and audit these rather than introducing a second social backend.
+- Multi-camera analysis deliberately trims every stream to their common timeline before classification, rep counting, and scoring; supplied offsets are alignment inputs, not automatic synchronization.
+- Form-analysis range uses a low percentile to reject isolated landmark outliers while the rep state machine retains its three-frame hysteresis gates.
 - Revalidated Base44 compose on 2026-09-16: PostgreSQL and API health checks pass; port 3000 serves Vite source modules. On first boot, wait for the web dependency install after `compose up` returns.

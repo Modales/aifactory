@@ -36,5 +36,5 @@ async def profile(athlete_id: str, user: UserRecord = Depends(get_current_user),
     query = select(ActivityRecord).where(ActivityRecord.user_id == athlete_id)
     if athlete_id != user.id and not result['following']:
         query = query.where(ActivityRecord.visibility == 'public')
-    records = list(await db.scalars(query.order_by(ActivityRecord.created_at.desc()).limit(30)))
+    records = list(await db.scalars(query.order_by(ActivityRecord.created_at.desc(), ActivityRecord.id.desc()).limit(30)))
     return {**result, 'activities': [await _activity_schema(db, item, user.id) for item in records]}

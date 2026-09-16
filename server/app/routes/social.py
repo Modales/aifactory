@@ -126,7 +126,7 @@ async def feed(
     activities = list(await db.scalars(
         select(ActivityRecord)
         .where(or_(ActivityRecord.user_id == user.id, ActivityRecord.user_id.in_(followed), (ActivityRecord.visibility == 'public') if scope == 'everyone' else False))
-        .order_by(ActivityRecord.created_at.desc()).limit(limit).offset(offset)
+        .order_by(ActivityRecord.created_at.desc(), ActivityRecord.id.desc()).limit(limit).offset(offset)
     ))
     return ActivityFeed(items=[await _activity_schema(db, item, user.id) for item in activities], limit=limit, offset=offset)
 

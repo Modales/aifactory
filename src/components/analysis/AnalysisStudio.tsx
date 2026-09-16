@@ -34,8 +34,9 @@ export default function AnalysisStudio() {
   const generation=useRef(0)
   const finishRef=useRef<()=>void>(()=>{})
   const activeRef=useRef(false)
-  const configRef=useRef(configs);configRef.current=configs
-  const overlapStart=Math.max(0,...configs.map(c=>c.offsetMs))
+  const configRef=useRef(configs)
+  const overlapStart=Math.max(...configs.map(c=>c.offsetMs))
+  useEffect(()=>{configRef.current=configs},[configs])
   useEffect(()=>()=>{activeRef.current=false;generation.current++},[])
   const onReady=useCallback((id:string,value:boolean)=>setReady(r=>({...r,[id]:value})),[])
   const onFrame=useCallback((id:string,frame:AnalysisFrame,aspectRatio:number)=>{
@@ -66,7 +67,7 @@ export default function AnalysisStudio() {
     activeRef.current=false;generation.current++;setStage('review');setWorking(true)
     try{const input=payloadStreams();if(!input.length)throw new Error('No athlete landmarks were captured. Check the framing and try again.');if(input.length!==configs.length)throw new Error('A camera did not capture an athlete. Retry with visible, synchronized views.');setReport(await evaluate(input,exercise||null,configs.length>1&&synchronized,true));setError('')}catch(e){setError((e as Error).message)}finally{setWorking(false)}
   }
-  finishRef.current=()=>void finish()
+  useEffect(()=>{finishRef.current=()=>void finish()})
   useEffect(()=>{
     if(stage!=='recording')return
     const current=generation.current;let pending=false

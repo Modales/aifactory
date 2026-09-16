@@ -8,7 +8,7 @@ from math import acos, degrees, hypot
 from statistics import median
 from .schemas import AnalysisRequest, CameraStream
 
-VERSION = 'pose-rules-1.0'
+VERSION = 'pose-rules-1.1'
 NAMES = {'squat': 'Squat', 'deadlift': 'Deadlift / hip hinge', 'bench': 'Bench press', 'ohp': 'Overhead press', 'curl': 'Biceps curl', 'lunge': 'Lunge'}
 DISCLAIMER = 'Experimental 2D movement estimates, not medical advice or a safety verdict. Scores cover only visible checks, not overall technique. Equipment, load, pain and spinal curvature cannot be determined from landmarks.'
 
@@ -145,12 +145,18 @@ def evaluate_rep(exercise, start, end, cameras):
         camera, rows = side_options[0]
         values = [r[key] for r in rows if r[key] is not None]
         if len(values) >= len(rows)*.8:
-            minimum, maximum = min(values), values[-1]
+            # Robust summaries prevent one mistracked frame from manufacturing depth
+            # or hiding an incomplete return. Rep segmentation already smooths motion.
+            ordered = sorted(values)
+            observed_minimum = ordered[int((len(ordered) - 1) * .1)]
+            # The segment gate already requires a three-frame smoothed return;
+            # its final observed angle is safe to report without a second lag.
+            observed_return = values[-1]
             limit = 110 if exercise in ('squat', 'lunge') else 115 if exercise == 'deadlift' else 95
-            add('Observed range of motion', camera, minimum, minimum <= limit,
-                'Controlled range observed.' if minimum <= limit else 'Range looks shortened from this view; use a comfortable, controlled range.')
-            add('Return to extension', camera, maximum, maximum >= 155,
-                'Controlled return observed.' if maximum >= 155 else 'Finish the return without forcing the joint into lockout.')
+            add('Observed range of motion', camera, observed_minimum, observed_minimum <= limit,
+                'Controlled range observed.' if observed_minimum <= limit else 'Range looks shortened from this view; use a comfortable, controlled range.')
+            add('Return to extension', camera, observed_return, observed_return >= 155,
+                'Controlled return observed.' if observed_return >= 155 else 'Finish the return without forcing the joint into lockout.')
         if exercise == 'curl':
             drift = [r['shoulderDrift'] for r in rows if r['shoulderDrift'] is not None]
             if len(drift) >= len(rows)*.8:
@@ -182,7 +188,10 @@ def analyze(payload: AnalysisRequest):
         overlap_end = min(c['rows'][-1]['t'] for c in cameras)
         if overlap_end-overlap_start < 1000:
             raise ValueError('Camera timelines need at least one second of overlap. Adjust clip offsets.')
-        warnings.append('Multi-view checks use your supplied synchronization; no 3D reconstruction or automatic clock calibration.')
+        # Analyze only the shared timeline. A longer primary clip must not create
+        # "multi-view" reps that the other synchronized cameras never captured.
+        cameras = [{**c, 'rows': [r for r in c['rows'] if overlap_start <= r['t'] <= overlap_end]} for c in cameras]
+        warnings.append('Analysis is limited to the timeline shared by every camera. Multi-view checks use your supplied synchronization; no 3D reconstruction or automatic clock calibration.')
     candidate, confidence = classify(cameras)
     exercise = payload.confirmedExercise or (candidate if confidence >= .68 else None)
     if payload.confirmedExercise and candidate and candidate != exercise:
