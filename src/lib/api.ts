@@ -120,6 +120,7 @@ export interface CoachSummary {
 }
 
 export interface TelemetryLog {
+  analysis?: import('./analysisApi').AnalysisReport | null
   sessionId: string
   exerciseId: string
   exerciseName: string
@@ -130,6 +131,7 @@ export interface TelemetryLog {
 }
 
 export interface SessionPayload {
+  analysisId?: string
   workoutId?: string
   exerciseId: string
   exerciseName: string
@@ -169,7 +171,7 @@ export function setStoredToken(token: string | null): void {
   }
 }
 
-async function request<T>(
+export async function request<T>(
   path: string,
   options: { method?: string; body?: unknown; token?: string | null } = {},
 ): Promise<T> {

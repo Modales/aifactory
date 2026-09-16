@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import ExerciseSummaryTable from '@/components/ExerciseSummaryTable'
+import AnalysisResults from '@/components/analysis/AnalysisResults'
 import MuscleHeatmap from '@/components/MuscleHeatmap'
 import { api } from '@/lib/api'
 import type { HistoryItem, TelemetryLog } from '@/lib/api'
@@ -28,7 +29,7 @@ function WorkoutTelemetry({ sessions }: { sessions: HistoryItem[] }) {
       <div className="space-y-4 p-4">
         {log.muscleLoad.entries.length > 0 && <MuscleHeatmap summary={log.muscleLoad} compact />}
         {Object.keys(log.flawCounts).length > 0 && <div className="flex flex-wrap gap-2">{Object.entries(log.flawCounts).map(([flaw, count]) => <span key={flaw} className="mono-data border-2 border-foreground px-2 py-1 text-[10px]">{flaw.toUpperCase()} ×{count}</span>)}</div>}
-        <ExerciseSummaryTable reps={log.reps} />
+        {log.analysis ? <AnalysisResults report={log.analysis} working={false} /> : <ExerciseSummaryTable reps={log.reps} />}
       </div>
     </section>
   })}</div>

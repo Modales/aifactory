@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, EmailStr, Field
 
 
 class RepData(BaseModel):
@@ -34,6 +34,7 @@ class MuscleLoadSummary(BaseModel):
 
 
 class EndSessionPayload(BaseModel):
+    analysisId: str | None = None
     workoutId: str | None = None
     exerciseId: str
     exerciseName: str
@@ -142,6 +143,7 @@ class HistoryPage(BaseModel):
 
 
 class TelemetryLog(BaseModel):
+    analysis: dict[str, Any] | None = None
     sessionId: str
     exerciseId: str
     exerciseName: str
@@ -177,6 +179,7 @@ class FollowStatus(BaseModel):
 
 
 class ActivityCreatePayload(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
     sessionId: str | None = None
     caption: str = Field(default="", max_length=2000)
     visibility: Literal["public", "followers"] = "followers"
@@ -222,6 +225,7 @@ class ActivityFeed(BaseModel):
 
 
 class ClubCreatePayload(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
     name: str = Field(min_length=2, max_length=100)
     description: str = Field(default="", max_length=2000)
     isPrivate: bool = False
@@ -238,11 +242,12 @@ class Club(BaseModel):
 
 
 class ChallengeCreatePayload(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
     name: str = Field(min_length=2, max_length=120)
     description: str = Field(default="", max_length=2000)
     metric: Literal["reps", "sessions", "durationSeconds"]
-    startsAt: datetime
-    endsAt: datetime
+    startsAt: AwareDatetime
+    endsAt: AwareDatetime
     clubId: str | None = None
 
 

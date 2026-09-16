@@ -8,6 +8,8 @@ from sqlalchemy import text
 from .coach import CoachGenerator, OpenRouterCoach
 from .config import load_settings
 from .database import Base, make_engine_and_session_factory
+from .routes.analysis import router as analysis_router
+from .routes.athletes import router as athletes_router
 from .routes.auth import router as auth_router
 from .routes.history import router as history_router
 from .routes.profile import router as profile_router
@@ -54,6 +56,8 @@ def create_app(
         allow_headers=["*"],
     )
 
+    app.include_router(analysis_router)
+    app.include_router(athletes_router)
     app.include_router(auth_router)
     app.include_router(profile_router)
     app.include_router(workout_router)
@@ -65,4 +69,3 @@ def create_app(
 
 
 app = create_app()
-create_app()

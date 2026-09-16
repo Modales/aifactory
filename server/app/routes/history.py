@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..deps import get_current_user
 from ..muscle_load import normalize_muscle_load
-from ..orm import UserRecord, WorkoutSessionRecord
+from ..orm import AnalysisRecord, UserRecord, WorkoutSessionRecord
 from ..schemas import (
     ExerciseBreakdown,
     HistoryItem,
@@ -126,7 +126,9 @@ async def read_telemetry(
     for rep in record.reps or []:
         flaw_counts.update(rep.get("flaws") or [])
 
+    analysis = await db.scalar(select(AnalysisRecord).where(AnalysisRecord.session_id == record.id))
     return TelemetryLog(
+        analysis={**analysis.result, 'analysisId': analysis.id} if analysis else None,
         sessionId=record.id,
         exerciseId=record.exercise_id,
         exerciseName=record.exercise_name,

@@ -1,0 +1,12 @@
+import { Check, Eye, ShieldCheck, TriangleAlert } from 'lucide-react'
+import type { AnalysisReport } from '@/lib/analysisApi'
+export default function AnalysisResults({ report, working }: { report: AnalysisReport | null; working: boolean }) {
+  return <section className="social-card analysis-results"><div className="section-heading"><h2>Movement intelligence</h2><span className="analysis-beta">EXPERIMENTAL</span></div><p className="social-muted">{working?'Evaluating observed movement…':'Evidence first. Feedback second.'}</p>
+    <div className="analysis-detected"><Eye size={19}/><div><span>Exercise</span><strong>{report?.exerciseName??'Waiting for movement'}</strong><p>{report?.exercise ? report.selectionSource==='confirmed'?'Confirmed by you':`Heuristic detection · ${Math.round(report.confidence*100)}% confidence` : 'Complete a full rep with a clear side view.'}</p></div></div>
+    <div className="analysis-score-grid"><div><span>Completed reps</span><strong>{report?.repCount??'—'}</strong></div><div><span>Visible-check score</span><strong>{report?.score??'—'}{report?.score!=null&&<small>/100</small>}</strong></div></div>
+    {report && <><div className="analysis-views">{report.views.map(v=><span key={v.id}>{v.id} · {v.view} ({v.viewSource==='estimated'?'estimated':'confirmed'})</span>)}</div><div className="analysis-warnings">{report.warnings.map(w=><p key={w}><TriangleAlert size={15}/>{w}</p>)}</div>
+    {report.reps.length>0&&<div className="rep-evidence"><h3>Rep-by-rep evidence</h3>{report.reps.map(r=><details key={r.index}><summary><span>Rep {r.index}<small> · {r.durationSeconds.toFixed(1)}s</small></span><strong>{r.score??'Not visible'}{r.score!==null?' / 100':''}</strong></summary><div>{r.checks.length?r.checks.map(c=><div className="form-check" key={c.name}>{c.passed?<Check size={15}/>:<TriangleAlert size={15}/>}<div><strong>{c.name}</strong><span>{c.value} {c.units} · {c.cameraId}</span><p>{c.cue}</p></div></div>):<p className="social-muted">Insufficient visibility to score this repetition.</p>}</div></details>)}</div>}
+    <div className="analysis-limits"><ShieldCheck size={18}/><div><strong>What we cannot see</strong>{report.notAssessed.map(n=><p key={n}>{n}</p>)}</div></div><p className="analysis-disclaimer">{report.disclaimer}</p></>}
+    {!report&&<div className="analysis-limits"><ShieldCheck size={19}/><p>No random scores. Hidden joints and ambiguous movements are left unscored. A frontal camera can add knee-tracking evidence.</p></div>}
+  </section>
+}

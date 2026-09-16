@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..deps import get_optional_user
 from ..muscle_load import normalize_muscle_load
-from ..orm import UserRecord, WorkoutSessionRecord
+from ..orm import AnalysisRecord, UserRecord, WorkoutSessionRecord
 from ..schemas import EndSessionPayload, SessionCreated, WorkoutSummary
 
 router = APIRouter(prefix="/api/workout", tags=["workout"])
@@ -16,6 +16,20 @@ async def create_session(
     db: AsyncSession = Depends(get_db),
     user: UserRecord | None = Depends(get_optional_user),
 ):
+    analysis = None
+    if payload.analysisId:
+        analysis = await db.get(AnalysisRecord, payload.analysisId, with_for_update=True)
+        if user is None or analysis is None or analysis.user_id != user.id:
+            raise HTTPException(status_code=404, detail='Analysis not found')
+        if analysis.session_id:
+            existing = await db.get(WorkoutSessionRecord, analysis.session_id)
+            return SessionCreated(id=existing.id, createdAt=existing.created_at)
+        result = analysis.result
+        if result['score'] is None or not result['exercise'] or not result['repCount']:
+            raise HTTPException(status_code=422, detail='Only scored analysis can be saved as a workout')
+        # The saved workout is derived from the server report, never caller-supplied scores.
+        from ..analysis.persistence import apply_report
+        apply_report(payload, result)
     record = WorkoutSessionRecord(
         user_id=user.id if user is not None else None,
         workout_id=payload.workoutId,
@@ -30,6 +44,9 @@ async def create_session(
         reps=[rep.model_dump() for rep in payload.reps],
     )
     db.add(record)
+    if analysis is not None:
+        await db.flush()
+        analysis.session_id = record.id
     await db.commit()
     await db.refresh(record)
     return SessionCreated(id=record.id, createdAt=record.created_at)
