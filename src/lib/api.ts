@@ -265,6 +265,8 @@ export const api = {
     const suffix = query.toString() ? `?${query}` : ''
     return request<SocialFeed>(`/api/social/feed${suffix}`)
   },
+  shareActivity: (payload: { sessionId?: string; caption: string; visibility: 'public' | 'followers' }) =>
+    request<SocialActivity>('/api/social/activities', { method: 'POST', body: payload }),
   clubs: () => request<SocialClub[]>('/api/social/clubs'),
   challenges: () => request<SocialChallenge[]>('/api/social/challenges'),
   reactToActivity: (activityId: string) =>

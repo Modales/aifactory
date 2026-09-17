@@ -40,7 +40,10 @@ def test_squat_detects_and_scores_actual_joint_geometry():
     assert result['selectionSource']=='detected'
     assert result['repCount']==2
     assert result['score']==100
-    assert len(result['reps'][0]['checks'])==2
+    assert [c['name'] for c in result['reps'][0]['checks']]==['Squat depth','Stand-up lockout','Torso angle at the bottom','Tempo']
+    assert all('°' in c['cue'] or 's' in c['cue'] for c in result['reps'][0]['checks'])
+    assert result['headline'].startswith('Squat: 2 reps at 100/100')
+    assert all(f['passed'] for f in result['focus'])
     assert 'knee tracking' in ' '.join(result['notAssessed']).lower()
 
 
@@ -83,18 +86,18 @@ def test_two_views_count_once_and_add_only_visible_checks():
     r=analyze(payload(streams=[side,frontal],synchronized=True))
     assert r['repCount']==2
     assert r['score']==100
-    assert len(r['reps'][0]['checks'])==3
+    assert len(r['reps'][0]['checks'])==5
     assert r['reps'][0]['checks'][-1]['cameraId']=='front'
     # A second side view does not duplicate either reps or checks.
     r=analyze(payload(streams=[side,squat_stream('side2')],synchronized=True))
-    assert r['repCount']==2 and len(r['reps'][0]['checks'])==2
+    assert r['repCount']==2 and len(r['reps'][0]['checks'])==4
 
 
 def test_offsets_align_same_events_and_nonoverlap_rejected():
     front=squat_stream('front','frontal',offset=-3000)
     for f in front['frames']: f['timestampMs']+=3000
     r=analyze(payload(streams=[squat_stream(),front],synchronized=True))
-    assert len(r['reps'][0]['checks'])==3
+    assert len(r['reps'][0]['checks'])==5
     front['offsetMs']=100000
     with pytest.raises(ValueError,match='overlap'):
         analyze(payload(streams=[squat_stream(),front],synchronized=True))
@@ -105,7 +108,7 @@ def test_occluded_frontal_view_does_not_add_a_passing_check():
     for f in front['frames']:
         for i in (25,26,27,28): f['landmarks'][i]['visibility']=.1
     r=analyze(payload(streams=[squat_stream(),front],synchronized=True))
-    assert all(len(rep['checks'])==2 for rep in r['reps'])
+    assert all(len(rep['checks'])==4 for rep in r['reps'])
 
 
 def test_frontal_knee_deviation_reduces_visible_check_score():
@@ -113,8 +116,10 @@ def test_frontal_knee_deviation_reduces_visible_check_score():
     for f in front['frames']:
         f['landmarks'][25]['x']=.48;f['landmarks'][26]['x']=.52
     r=analyze(payload(streams=[squat_stream(),front],synchronized=True))
-    assert r['score']==67
-    assert 'knee tracking' in ' '.join(r['reps'][0]['feedback']).lower()
+    assert 60 <= r['score'] < 100
+    assert 'knees drifted' in ' '.join(r['reps'][0]['feedback']).lower()
+    assert r['focus'][0]['name']=='Frontal knee tracking' and r['focus'][0]['failedReps']==2
+    assert 'knee tracking' in r['headline'].lower()
 
 
 def test_gap_breaks_rep_continuity():
@@ -131,9 +136,11 @@ def test_single_landmark_outlier_cannot_manufacture_range():
     rows = [{'t': i * 200, 'knee': 130, 'otherKnee': 130, 'alignment': None, 'stance': .3} for i in range(11)]
     rows[5]['knee'] = 20
     report = evaluate_rep('squat', 0, 2000, [{'id': 'side', 'view': 'side', 'rows': rows}])
-    assert report['checks'][0]['name'] == 'Observed range of motion'
+    assert report['checks'][0]['name'] == 'Squat depth'
     assert report['checks'][0]['value'] == 130
     assert not report['checks'][0]['passed']
+    assert '130' in report['checks'][0]['cue'] and '30' in report['checks'][0]['cue']
+    assert report['checks'][0]['score'] == 0
 
 
 def test_multi_view_analysis_uses_only_shared_timeline():
@@ -196,7 +203,7 @@ async def test_analysis_requires_auth_and_reports_are_owned(app_and_client):
     assert history.json()['items'][0]['totalReps']==2
     assert history.json()['items'][0]['avgFormScore']==100
     log=await client.get(f"/api/workouts/history/{saved.json()['id']}/telemetry",headers=first)
-    assert log.json()['analysis']['modelVersion']=='pose-rules-1.1'
+    assert log.json()['analysis']['modelVersion']=='pose-rules-1.2'
     assert 'streams' not in log.json()['analysis']
     assert all('landmarks' not in view for view in log.json()['analysis']['views'])
 

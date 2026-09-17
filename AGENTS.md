@@ -31,4 +31,7 @@ Verify: `curl -sf http://localhost:3000/` (frontend) and `curl -sf http://localh
 - Social API routes already exist under `/api/social` for activities, follows, kudos, comments, clubs and challenges. Reuse and audit these rather than introducing a second social backend.
 - Multi-camera analysis deliberately trims every stream to their common timeline before classification, rep counting, and scoring; supplied offsets are alignment inputs, not automatic synchronization.
 - Form-analysis range uses a low percentile to reject isolated landmark outliers while the rep state machine retains its three-frame hysteresis gates.
+- `pose-rules-1.2`: every check is graded 0–100 by distance outside its target band (`graded()` in `server/app/analysis/engine.py`); cues quote the measured angle/seconds. Lockout targets sit at the segmenter's extension gate (150–155°) because a rep closes the moment the joint re-crosses it. Reports carry `focus` (per-check fail counts) and `headline`.
+- Saved analysis workouts get their muscle heatmap from `server/app/muscle_load.py::estimate_muscle_load`, a server copy of `src/lib/muscleModel.ts` demand priors — keep the two tables in sync.
+- `/session` is the Strava-style record flow (`src/components/analysis/`): setup → record → review/save (+ optional feed post). `?demo=1` still loads the legacy simulated session.
 - Revalidated Base44 compose on 2026-09-16: PostgreSQL and API health checks pass; port 3000 serves Vite source modules. On first boot, wait for the web dependency install after `compose up` returns.
