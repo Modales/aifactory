@@ -157,7 +157,7 @@ export default function AnalysisStudio() {
         <div className="record-title">
           <div>
             <Link to="/dashboard" className="record-crumb"><ArrowLeft size={14} />Dashboard</Link>
-            <h1>{stage === 'recording' ? 'Recording' : stage === 'review' ? 'Review your set' : 'Record a set'}</h1>
+            <h1>{stage === 'recording' ? <>Recording <em>live</em></> : stage === 'review' ? <>Review your <em>set</em></> : <>Record a <em>set</em></>}</h1>
             <p>{stage === 'recording' ? 'Reps and form update after each completed rep.' : stage === 'review' ? 'Measured joint angles from your camera, checked against simple technique targets.' : 'Pick the exercise, frame your whole body, hit Record.'}</p>
           </div>
           <span className="record-private"><ShieldCheck size={15} />Video never leaves your device</span>
