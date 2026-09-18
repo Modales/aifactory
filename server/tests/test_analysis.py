@@ -3,7 +3,8 @@ from copy import deepcopy
 from math import cos, sin, pi
 import pytest
 from pydantic import ValidationError
-from app.analysis.engine import analyze, angle, classify, evaluate_rep, segments
+from app.analysis.engine import analyze, angle, classify, evaluate_rep, learn_from, segments
+from app.analysis.library import LIBRARY, FAMILIES
 from app.analysis.schemas import AnalysisRequest
 from .conftest import SAMPLE_PAYLOAD
 
@@ -71,7 +72,7 @@ def test_static_pose_and_partial_rep_do_not_count():
 def test_conflicting_confirmed_movement_abstains():
     r=analyze(payload(confirmedExercise='curl'))
     assert r['score'] is None
-    assert any('differs' in w for w in r['warnings'])
+    assert any('looks more like squat' in w for w in r['warnings'])
 
 
 def test_frontal_only_has_no_sagittal_score():
@@ -135,7 +136,7 @@ def test_gap_breaks_rep_continuity():
 def test_single_landmark_outlier_cannot_manufacture_range():
     rows = [{'t': i * 200, 'knee': 130, 'otherKnee': 130, 'alignment': None, 'stance': .3} for i in range(11)]
     rows[5]['knee'] = 20
-    report = evaluate_rep('squat', 0, 2000, [{'id': 'side', 'view': 'side', 'rows': rows}])
+    report = evaluate_rep(LIBRARY['squat'], 0, 2000, [{'id': 'side', 'view': 'side', 'rows': rows}])
     assert report['checks'][0]['name'] == 'Squat depth'
     assert report['checks'][0]['value'] == 130
     assert not report['checks'][0]['passed']
@@ -152,20 +153,88 @@ def test_multi_view_analysis_uses_only_shared_timeline():
     assert all(check['cameraId'] == 'front' for check in result['reps'][0]['checks'] if check['view'] == 'frontal')
 
 
-@pytest.mark.parametrize('exercise',['squat','lunge','deadlift','curl','ohp','bench'])
-def test_classifier_movement_signatures(exercise):
+def synthetic_rows(exercise, frames=40, period_ms=200):
+    """Feature rows shaped like each movement family; geometry only, no landmarks."""
     rows=[]
-    for i in range(40):
-        d=(1-cos(i/39*2*pi))/2
-        rows.append({'t':i*200,'knee':170-(90*d if exercise in ('squat','lunge') else 10*d),
-                     'otherKnee':170-(20*d if exercise=='lunge' else 90*d),
-                     'hip':170-(70*d if exercise in ('squat','lunge','deadlift') else 5*d),
-                     'elbow':170-(100*d if exercise in ('curl','ohp','bench') else 5*d),
-                     'trunk':80 if exercise=='bench' else 50*d if exercise=='deadlift' else 10,
-                     'overhead':exercise=='ohp'})
-    detected,confidence=classify([{'view':'side','rows':rows}])
-    assert detected==exercise
-    assert (confidence<.68)==(exercise=='bench')
+    for i in range(frames):
+        d=(1-cos(i/(frames-1)*2*pi))/2
+        base={'t':i*period_ms,'knee':175,'otherKnee':175,'hip':175,'elbow':175,'shoulder':12,'ankle':95,'trunk':8,'kneeAsym':0,
+              'hipAnkle':2.0,'wristY':-.95,'wristHip':-.3,'kneeHip':-1.6,'reach':.1,'shoulderDrift':.05,'overhead':False,'footSplit':.2,'hipAsym':0}
+        if exercise=='squat': base.update(knee=175-90*d,otherKnee=175-90*d,hip=175-70*d,trunk=8+25*d,hipAnkle=2-.8*d)
+        elif exercise=='lunge': base.update(knee=175-90*d,otherKnee=175-80*d,kneeAsym=10*d,hip=175-80*d,hipAsym=70*d,footSplit=1.8,hipAnkle=2-.6*d)
+        elif exercise=='deadlift': base.update(hip=175-70*d,knee=175-40*d,trunk=8+60*d,wristHip=-.3-.6*d,hipAnkle=2-.3*d)
+        elif exercise=='romanian_deadlift': base.update(hip=175-70*d,knee=170-8*d,trunk=8+65*d,wristHip=-.3-.8*d,hipAnkle=2-.2*d)
+        elif exercise=='curl': base.update(elbow=175-110*d,wristY=-.95+.9*d,shoulder=12+15*d)
+        elif exercise=='ohp': base.update(elbow=175-90*d,wristY=1.3-1.1*d,shoulder=170-100*d,overhead=d<.5)
+        elif exercise=='bench': base.update(elbow=175-90*d,trunk=88,hipAnkle=.1,wristY=1.1-.6*d,knee=100,shoulder=90-50*d)
+        elif exercise=='pushup': base.update(elbow=175-90*d,trunk=85,hipAnkle=.2,wristY=-1.1+.3*d,hip=172,knee=176)
+        elif exercise=='pullup': base.update(elbow=175-100*d,wristY=1.4,shoulder=170-40*d,hipAnkle=1.9,trunk=5)
+        elif exercise=='lateral_raise': base.update(shoulder=12+75*d,wristY=-.95+.9*d)
+        elif exercise=='leg_extension': base.update(knee=95+75*d,hipAnkle=.9,hip=95,trunk=15)
+        elif exercise=='seated_leg_curl': base.update(knee=170-75*d,hipAnkle=.9,hip=95,trunk=15)
+        elif exercise=='situp': base.update(trunk=88-55*d,hip=130-60*d,knee=100,hipAnkle=.1)
+        elif exercise=='calf_raise': base.update(ankle=95+35*d)
+        rows.append(base)
+    return rows
+
+
+FAMILY_SAMPLES=['squat','lunge','deadlift','romanian_deadlift','curl','ohp','bench','pushup','pullup','lateral_raise','leg_extension','seated_leg_curl','situp','calf_raise']
+
+
+@pytest.mark.parametrize('exercise',FAMILY_SAMPLES)
+def test_library_signatures_detect_each_movement(exercise):
+    view='frontal' if exercise=='lateral_raise' else 'side'
+    detection=classify([{'id':'c','view':view,'rows':synthetic_rows(exercise)}])
+    assert detection['exercise']==exercise, detection['candidates'][:3]
+    assert detection['confidence']>=.68
+
+
+def test_detection_is_fast_partial_rep_is_enough():
+    rows=synthetic_rows('squat')[:11]   # ~2 s, only the descent of the first rep
+    detection=classify([{'id':'c','view':'side','rows':rows}])
+    assert detection['exercise']=='squat' and detection['confidence']>=.68
+    assert classify([{'id':'c','view':'side','rows':rows[:4]}])['exercise'] is None
+
+
+def test_variants_are_offered_as_alternatives_not_guessed():
+    detection=classify([{'id':'c','view':'side','rows':synthetic_rows('bench')}])
+    ids={a['id'] for a in detection['alternatives']}
+    assert {'bench','dumbbell_bench_press','floor_press'}<=ids
+    assert all(LIBRARY[i]['family']==LIBRARY['bench']['family'] for i in ids)
+
+
+def test_library_is_large_and_well_formed():
+    assert len(LIBRARY)>=70
+    for spec in LIBRARY.values():
+        assert spec['family'] in FAMILIES and spec['cycle'] in ('flex','extend')
+        assert (spec['rest']>spec['work'])==(spec['cycle']=='flex')
+        assert spec['checks'] and all({'name','key','stat','target','tolerance','direction','units','ok','fix','view'}<=set(c) for c in spec['checks'])
+        if spec['variantOf']: assert spec['signature']==LIBRARY[spec['variantOf']]['signature']
+
+
+def test_extend_cycle_segments_count_low_high_low_reps():
+    rows=[{'t':i*200,'knee':v} for i,v in enumerate([95,95,110,150,170,170,150,110,95,95,120,160,170,150,100,95])]
+    assert len(segments(rows,'knee',110,140,'extend',.6))==2
+    assert len(segments(rows,'knee',150,125,'flex',.6))==1   # the middle high→low→high swing
+
+
+def test_teach_new_exercise_from_own_reps_then_detect_and_score_it():
+    stream=squat_stream()
+    request=payload(streams=[stream])
+    spec=learn_from(request,'Sissy squat',['quads','calves'])
+    assert spec['custom'] and spec['primary']=='knee' and spec['cycle']=='flex'
+    assert spec['learned']['reps']==2 and spec['muscles']=={'quads':90,'calves':90}
+    assert [c['name'] for c in spec['checks']]==['Range of motion','Return to start','Torso control','Tempo']
+    library={**LIBRARY,spec['id']:spec}
+    result=analyze(payload(streams=[stream],confirmedExercise=spec['id']),library)
+    assert result['exercise']==spec['id'] and result['repCount']==2 and result['score']==100
+    assert result['muscleDemand']=={'quads':90,'calves':90}
+    assert any('Taught exercises' in n for n in result['notAssessed'])
+    with pytest.raises(ValueError,match='Unknown exercise'):
+        analyze(payload(streams=[stream],confirmedExercise='nope'))
+    static=squat_stream();static['frames']=[{**f,'landmarks':deepcopy(static['frames'][0]['landmarks'])} for f in static['frames']]
+    with pytest.raises(ValueError,match='Not enough visible joint movement'):
+        learn_from(payload(streams=[static]),'Nothing',[])
 
 
 def test_contract_rejects_invalid_or_unconfirmed_streams():
@@ -203,7 +272,7 @@ async def test_analysis_requires_auth_and_reports_are_owned(app_and_client):
     assert history.json()['items'][0]['totalReps']==2
     assert history.json()['items'][0]['avgFormScore']==100
     log=await client.get(f"/api/workouts/history/{saved.json()['id']}/telemetry",headers=first)
-    assert log.json()['analysis']['modelVersion']=='pose-rules-1.2'
+    assert log.json()['analysis']['modelVersion']=='pose-rules-2.0'
     assert 'streams' not in log.json()['analysis']
     assert all('landmarks' not in view for view in log.json()['analysis']['views'])
 
@@ -213,3 +282,26 @@ async def test_unscored_report_cannot_be_saved(auth_client):
     result=await auth_client.post('/api/analysis/evaluate',json=p.model_dump())
     saved=await auth_client.post('/api/workout/session',json={**SAMPLE_PAYLOAD,'analysisId':result.json()['analysisId']})
     assert saved.status_code==422
+
+
+async def test_custom_exercise_routes_are_owned_and_usable(app_and_client):
+    _,client=app_and_client
+    signup=await client.post('/api/auth/signup',json={'displayName':'Teacher','email':'teacher@example.com','password':'analysis-test-password'})
+    auth={'Authorization':f"Bearer {signup.json()['accessToken']}"}
+    before=(await client.get('/api/analysis/exercises',headers=auth)).json()
+    assert len(before['exercises'])>=70 and before['muscles']
+    body={'name':'Sissy squat','muscles':['quads'],'streams':[squat_stream()]}
+    assert (await client.post('/api/analysis/exercises',json=body)).status_code==401
+    taught=await client.post('/api/analysis/exercises',json=body,headers=auth)
+    assert taught.status_code==201, taught.text
+    new_id=taught.json()['exercise']['id']
+    assert (await client.post('/api/analysis/exercises',json=body,headers=auth)).status_code==409
+    listed=(await client.get('/api/analysis/exercises',headers=auth)).json()['exercises']
+    assert any(e['id']==new_id and e['custom'] for e in listed)
+    scored=await client.post('/api/analysis/evaluate',json={'streams':[squat_stream()],'confirmedExercise':new_id},headers=auth)
+    assert scored.status_code==200 and scored.json()['repCount']==2 and scored.json()['exerciseName']=='Sissy squat'
+    other=await client.post('/api/auth/signup',json={'displayName':'Other','email':'other-teacher@example.com','password':'analysis-test-password'})
+    other={'Authorization':f"Bearer {other.json()['accessToken']}"}
+    assert (await client.post('/api/analysis/evaluate',json={'streams':[squat_stream()],'confirmedExercise':new_id},headers=other)).status_code==422
+    assert (await client.delete(f'/api/analysis/exercises/{new_id}',headers=other)).status_code==404
+    assert (await client.delete(f'/api/analysis/exercises/{new_id}',headers=auth)).status_code==204

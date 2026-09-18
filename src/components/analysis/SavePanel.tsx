@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
-import { CheckCircle2, Globe, Save, Trash2, Users } from 'lucide-react'
-import type { AnalysisReport } from '@/lib/analysisApi'
+import { CheckCircle2, Globe, GraduationCap, Save, Trash2, Users } from 'lucide-react'
+import type { AnalysisReport, ExerciseId } from '@/lib/analysisApi'
 
 interface Props {
   report: AnalysisReport | null
@@ -10,10 +10,12 @@ interface Props {
   saved: boolean
   onSave: (options: { caption: string; share: boolean; visibility: 'public' | 'followers' }) => void
   onDiscard: () => void
+  onConfirm?: (id: ExerciseId) => void
+  onTeach?: () => void
 }
 
-/** Strava-style "save activity" card: title, who can see it, save or discard. */
-export default function SavePanel({ report, working, saving, saved, onSave, onDiscard }: Props) {
+/** Strava-style "save activity" card: confirm the exercise, title, who can see it, save or discard. */
+export default function SavePanel({ report, working, saving, saved, onSave, onDiscard, onConfirm, onTeach }: Props) {
   const [caption, setCaption] = useState('')
   const [share, setShare] = useState(true)
   const [visibility, setVisibility] = useState<'public' | 'followers'>('followers')
@@ -36,6 +38,15 @@ export default function SavePanel({ report, working, saving, saved, onSave, onDi
     <section className="record-card pad save-form">
       <h2>{working ? 'Wrapping up…' : canSave ? 'Save your set' : 'Nothing to save yet'}</h2>
       {!canSave && !working && <p className="report-empty">A set needs at least one fully visible rep to be saved. Move so your whole body stays in frame and try again.</p>}
+      {report && !working && onConfirm && (report.alternatives.length > 1 || (!report.exercise && report.candidates.length > 0)) && (
+        <div className="live-alternatives">
+          <span>{report.exercise ? `Detected ${report.exerciseName.toLowerCase()} — pick the exact variant:` : 'Not sure what this was — tap the closest match:'}</span>
+          <div className="chip-row">
+            {(report.exercise ? report.alternatives : report.candidates.slice(0, 4)).map(a => <button key={a.id} className="chip" aria-pressed={a.id === report.exercise} onClick={() => onConfirm(a.id)}>{a.name}</button>)}
+          </div>
+        </div>
+      )}
+      {report?.exercise && !working && onTeach && <button className="ghost-button teach-link" onClick={onTeach}><GraduationCap size={14} />Not a {report.exerciseName.toLowerCase()}? Teach it as a new exercise</button>}
       <label>Title / notes<textarea rows={2} maxLength={2000} placeholder={report?.exercise ? `${report.exerciseName} — ${report.repCount} reps` : 'How did it feel?'} value={caption} onChange={e => setCaption(e.target.value)} disabled={!canSave} /></label>
       <label className="sync-confirm" style={{ marginTop: 0 }}><input type="checkbox" checked={share} onChange={e => setShare(e.target.checked)} disabled={!canSave} /><span>Post to my feed</span></label>
       {share && <div className="visibility">

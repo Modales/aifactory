@@ -74,6 +74,20 @@
 .chip { border: 2px solid var(--ink); background: var(--bone); border-radius: 0; padding: 6px 12px; font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--ink); display: inline-flex; align-items: center; gap: 6px; }
 .chip:hover:not(:disabled) { background: var(--panel); }
 .chip[aria-pressed=true] { background: var(--orange); color: hsl(var(--primary-foreground)); box-shadow: 3px 3px 0 var(--ink); }
+.chip.custom { border-style: dashed; }
+.chip small { font-family: var(--mono); font-size: 9px; font-weight: 600; letter-spacing: .05em; color: var(--muted); text-transform: none; }
+.chip[aria-pressed=true] small { color: inherit; opacity: .8; }
+.picker-search { display: block; margin-top: 14px; }
+.picker-search span { display: flex; align-items: center; gap: 5px; font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: .25em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+.picker-search input { width: 100%; border: 2px solid var(--ink); background: var(--paper); border-radius: 0; padding: 9px 12px; font-size: 13px; }
+.picker-results { margin-top: 10px; padding-top: 10px; border-top: 2px dashed var(--ink); }
+.live-alternatives { margin-top: 14px; padding: 12px 14px; background: var(--paper); border: 2px dashed var(--ink); }
+.live-alternatives > span { display: block; font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: .2em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+.teach-link { margin-top: 12px; width: 100%; justify-content: center; text-align: center; }
+.teach-panel { margin-bottom: 16px; }
+.teach-panel label { display: block; font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: .25em; text-transform: uppercase; color: var(--muted); }
+.teach-panel label input { display: block; width: 100%; margin-top: 6px; border: 2px solid var(--ink); background: var(--paper); border-radius: 0; padding: 9px 12px; font-size: 13px; font-family: inherit; letter-spacing: 0; text-transform: none; color: var(--ink); }
+.report-warning { margin-top: 10px; font-size: 12px; color: hsl(var(--destructive)); font-weight: 600; }
 .setup-block + .setup-block { margin-top: 20px; padding-top: 20px; border-top: 2px solid var(--ink); }
 .setup-note { font-size: 12px; color: var(--muted); line-height: 1.6; margin-top: 10px; }
 .setup-advanced summary { cursor: pointer; font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: .2em; text-transform: uppercase; color: var(--muted); list-style: none; display: flex; align-items: center; gap: 6px; }

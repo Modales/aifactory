@@ -90,6 +90,17 @@ class AnalysisRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
+class CustomExerciseRecord(Base):
+    """An exercise the athlete taught from their own reps; ``spec`` is a full library spec."""
+    __tablename__ = "custom_exercises"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(60))
+    spec: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
 class FollowRecord(Base):
     __tablename__ = "follows"
 

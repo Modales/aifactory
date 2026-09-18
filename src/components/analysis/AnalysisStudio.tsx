@@ -8,7 +8,8 @@ import AnalysisResults from './AnalysisResults'
 import SetupPanel from './SetupPanel'
 import LiveHud from './LiveHud'
 import SavePanel from './SavePanel'
-import { evaluate, type AnalysisFrame, type AnalysisReport, type CameraStream, type ExerciseId } from '@/lib/analysisApi'
+import TeachExercisePanel from './TeachExercisePanel'
+import { evaluate, fetchLibrary, teachExercise, type AnalysisFrame, type AnalysisReport, type CameraStream, type ExerciseId, type ExerciseLibrary } from '@/lib/analysisApi'
 import { api } from '@/lib/api'
 import { emptyMuscleLoad } from '@/lib/muscleModel'
 import { useAuth } from '@/lib/authContext'
@@ -38,6 +39,8 @@ export default function AnalysisStudio() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
+  const [library, setLibrary] = useState<ExerciseLibrary>({ exercises: [], families: {}, muscles: [] })
+  const [teaching, setTeaching] = useState(false)
 
   const workoutId = useRef(crypto.randomUUID())
   const streams = useRef<Record<string, CameraStream>>({})
@@ -50,6 +53,8 @@ export default function AnalysisStudio() {
 
   useEffect(() => { configRef.current = configs }, [configs])
   useEffect(() => () => { activeRef.current = false; generation.current++ }, [])
+  // Library = built-ins + this athlete's taught exercises, so reload whenever the sign-in state changes.
+  useEffect(() => { fetchLibrary().then(setLibrary).catch(() => {}) }, [status])
 
   const onReady = useCallback((id: string, value: boolean, problem?: string) => { setReady(r => ({ ...r, [id]: value })); setSetupProblem(problem ?? '') }, [])
   const onFrame = useCallback((id: string, frame: AnalysisFrame, aspectRatio: number) => {
@@ -110,6 +115,25 @@ export default function AnalysisStudio() {
   }
   useEffect(() => { finishRef.current = () => void finish() })
 
+  /** Confirm a detected variant (or a candidate) mid-set or in review: re-score what was captured under that exercise. */
+  async function confirm(id: ExerciseId) {
+    setExercise(id)
+    if (stage !== 'review') return
+    const input = Object.values(streams.current)
+    if (!input.length) return
+    setWorking(true)
+    try { setReport(await evaluate(input, id, configs.length > 1 && synchronized, true)); setError('') } catch (e) { setError((e as Error).message) } finally { setWorking(false) }
+  }
+
+  /** Teach the set just recorded as a new library entry, then re-score it as that exercise. */
+  async function teach(name: string, muscles: string[]) {
+    const input = Object.values(streams.current)
+    const taught = await teachExercise(name, muscles, input, configs.length > 1 && synchronized)
+    setLibrary(await fetchLibrary())
+    await confirm(taught.exercise.id)
+    return taught
+  }
+
   // Live loop: re-evaluate everything captured so far every few seconds for on-screen reps/cues.
   useEffect(() => {
     if (stage !== 'recording') return
@@ -144,7 +168,7 @@ export default function AnalysisStudio() {
   function reset() {
     generation.current++; activeRef.current = false; streams.current = {}
     workoutId.current = crypto.randomUUID()
-    setStage('setup'); setReport(null); setError(''); setSaved(false); setWorking(false); setElapsed(0)
+    setStage('setup'); setReport(null); setError(''); setSaved(false); setWorking(false); setElapsed(0); setTeaching(false)
   }
 
   const allReady = configs.every(c => ready[c.id])
@@ -175,7 +199,7 @@ export default function AnalysisStudio() {
             </div>
           )}
 
-          {stage === 'recording' && <LiveHud elapsed={elapsed} report={report} working={working} />}
+          {stage === 'recording' && <LiveHud elapsed={elapsed} report={report} working={working} exercise={exercise} onExercise={id => void confirm(id)} />}
 
           {stage === 'setup' && (
             <div className="record-controls">
@@ -194,9 +218,15 @@ export default function AnalysisStudio() {
         </div>
 
         <div>
-          {stage === 'setup' && <SetupPanel exercise={exercise} onExercise={setExercise} configs={configs} onConfigs={updateConfigs} devices={devices} onDetectCameras={detectCameras} synchronized={synchronized} onSynchronized={setSynchronized} />}
+          {stage === 'setup' && <SetupPanel exercise={exercise} onExercise={setExercise} library={library.exercises} configs={configs} onConfigs={updateConfigs} devices={devices} onDetectCameras={detectCameras} synchronized={synchronized} onSynchronized={setSynchronized} />}
           {stage === 'recording' && <AnalysisResults report={report} working={working} />}
-          {stage === 'review' && <SavePanel report={report} working={working} saving={saving} saved={saved} onSave={save} onDiscard={reset} />}
+          {stage === 'review' && !working && report && !saved && (teaching || !report.exercise) && (
+            <TeachExercisePanel muscles={library.muscles} working={working} onTeach={teach} onCancel={teaching ? () => setTeaching(false) : undefined} />
+          )}
+          {stage === 'review' && (!teaching || saved) && (
+            <SavePanel report={report} working={working} saving={saving} saved={saved} onSave={save} onDiscard={reset}
+              onConfirm={id => void confirm(id)} onTeach={report && !saved && !teaching ? () => setTeaching(true) : undefined} />
+          )}
         </div>
       </div>
     </AnalysisShell>

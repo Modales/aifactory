@@ -1,10 +1,12 @@
 import { Activity, TriangleAlert } from 'lucide-react'
-import type { AnalysisReport } from '@/lib/analysisApi'
+import type { AnalysisReport, ExerciseId } from '@/lib/analysisApi'
 
 const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
 
 /** Live stats while recording — time, reps, form — plus the latest coaching cue from the last completed rep. */
-export default function LiveHud({ elapsed, report, working }: { elapsed: number; report: AnalysisReport | null; working: boolean }) {
+interface Props { elapsed: number; report: AnalysisReport | null; working: boolean; exercise: ExerciseId | ''; onExercise: (value: ExerciseId) => void }
+
+export default function LiveHud({ elapsed, report, working, exercise, onExercise }: Props) {
   const lastRep = report?.reps.at(-1)
   const issue = lastRep?.checks.filter(c => !c.passed).sort((a, b) => a.score - b.score)[0]
   return (
@@ -26,6 +28,22 @@ export default function LiveHud({ elapsed, report, working }: { elapsed: number;
           {report && !report.exercise && report.warnings[0] && <small>{report.warnings[0]}</small>}
         </div>
       </div>
+      {report?.exercise && !exercise && report.alternatives.length > 1 && (
+        <div className="live-alternatives">
+          <span>Detected {report.exerciseName.toLowerCase()} · {Math.round(report.confidence * 100)}%. Tap to confirm a variant:</span>
+          <div className="chip-row">
+            {report.alternatives.map(a => <button key={a.id} className="chip" aria-pressed={a.id === report.exercise} onClick={() => onExercise(a.id)}>{a.name}</button>)}
+          </div>
+        </div>
+      )}
+      {report && !report.exercise && report.candidates.length > 0 && (
+        <div className="live-alternatives">
+          <span>Looks like one of these — tap to confirm:</span>
+          <div className="chip-row">
+            {report.candidates.slice(0, 3).map(c => <button key={c.id} className="chip" onClick={() => onExercise(c.id)}>{c.name}</button>)}
+          </div>
+        </div>
+      )}
     </>
   )
 }

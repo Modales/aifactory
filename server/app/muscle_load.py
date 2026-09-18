@@ -30,24 +30,21 @@ NAMES = {
     "glutes": "Gluteus maximus", "hip_adductors": "Hip adductors", "quads": "Quadriceps", "hamstrings": "Hamstrings", "calves": "Calves",
 }
 
-# Mirrors src/lib/muscleModel.ts so analysis-derived workouts light up the anatomy heatmap.
-EXERCISE_DEMAND = {
-    "squat": {"quads": 95, "glutes": 88, "hip_adductors": 62, "rectus_abdominis": 58, "obliques": 55, "erector_spinae": 58, "hamstrings": 48, "calves": 35},
-    "deadlift": {"erector_spinae": 94, "glutes": 84, "hamstrings": 82, "lats": 65, "traps": 62, "quads": 58, "forearms": 55, "rectus_abdominis": 54, "obliques": 54},
-    "bench": {"mid_chest": 95, "lower_chest": 80, "upper_chest": 68, "triceps_lateral": 76, "triceps_long": 72, "anterior_delts": 66, "lats": 28},
-    "ohp": {"anterior_delts": 95, "lateral_delts": 76, "triceps_long": 78, "triceps_lateral": 70, "upper_chest": 38, "traps": 54, "rectus_abdominis": 54, "obliques": 52},
-    "curl": {"biceps_long": 94, "biceps_short": 86, "brachialis": 70, "forearms": 66, "anterior_delts": 18},
-    "lunge": {"quads": 88, "glutes": 86, "hamstrings": 58, "hip_adductors": 52, "calves": 48, "rectus_abdominis": 46, "obliques": 46},
-}
+# Demand priors live on each exercise spec in analysis/library.py (the frontend's
+# src/lib/muscleModel.ts only mirrors the six legacy demo exercises).
+def _library_demand(exercise: str) -> dict[str, int]:
+    from .analysis.library import LIBRARY
+    spec = LIBRARY.get(exercise)
+    return spec["muscles"] if spec else {}
 
 
 def _clamp(value: float, low: float = 0, high: float = 100) -> float:
     return max(low, min(high, value))
 
 
-def estimate_muscle_load(exercise: str, reps: list[dict]) -> dict[str, Any]:
+def estimate_muscle_load(exercise: str, reps: list[dict], demand: dict[str, int] | None = None) -> dict[str, Any]:
     """Anatomical demand prior scaled by observed volume, form, tempo and range — not EMG or force."""
-    demand = EXERCISE_DEMAND.get(exercise, {})
+    demand = demand or _library_demand(exercise)
     scored = [r for r in reps if r.get("score") is not None]
     if not scored or not demand:
         return normalize_muscle_load(None)
@@ -55,7 +52,7 @@ def estimate_muscle_load(exercise: str, reps: list[dict]) -> dict[str, Any]:
     form = _clamp(mean([r["score"] for r in scored]) / 100, .55, 1)
     volume = _clamp(len(scored) / 10, 0, 1)
     tempo = _clamp(mean([r["durationSeconds"] for r in scored]) / 3, .55, 1)
-    range_checks = [c["score"] for r in scored for c in r["checks"] if c["name"].endswith(("depth", "range", "position", "hinge depth"))]
+    range_checks = [c["score"] for r in scored for c in r["checks"] if c["name"].lower().endswith(("depth", "range", "position", "height", "extension", "range of motion"))]
     rom = _clamp(mean(range_checks) / 100, .55, 1) if range_checks else .8
     exposure = _clamp(.25 + volume * .35 + form * .2 + tempo * .1 + rom * .1, 0, 1)
     entries = sorted(({"id": key, "name": NAMES[key], "score": round(_clamp(base * exposure)), "role": "primary" if base >= 70 else "secondary"}

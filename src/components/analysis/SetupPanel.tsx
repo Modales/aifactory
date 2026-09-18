@@ -1,10 +1,12 @@
 import { Camera, ChevronDown, Plus, Upload, X } from 'lucide-react'
 import { makeConfig, type CaptureConfig } from './captureConfig'
-import { exerciseNames, type ExerciseId } from '@/lib/analysisApi'
+import ExercisePicker from './ExercisePicker'
+import type { ExerciseId, LibraryExercise } from '@/lib/analysisApi'
 
 interface Props {
   exercise: ExerciseId | ''
   onExercise: (value: ExerciseId | '') => void
+  library: LibraryExercise[]
   configs: CaptureConfig[]
   onConfigs: (update: (items: CaptureConfig[]) => CaptureConfig[]) => void
   devices: MediaDeviceInfo[]
@@ -14,7 +16,7 @@ interface Props {
 }
 
 /** Strava-style "choose your sport" setup: exercise + camera angle up front, clips and extra views tucked away. */
-export default function SetupPanel({ exercise, onExercise, configs, onConfigs, devices, onDetectCameras, synchronized, onSynchronized }: Props) {
+export default function SetupPanel({ exercise, onExercise, library, configs, onConfigs, devices, onDetectCameras, synchronized, onSynchronized }: Props) {
   const primary = configs[0]
   const patch = (id: string, changes: Partial<CaptureConfig>) => onConfigs(items => items.map(c => c.id === id ? { ...c, ...changes } : c))
   const setSource = (kind: 'camera' | 'upload') => onConfigs(items => items.map(c => ({ ...c, kind, file: null, deviceId: '', offsetMs: 0 })))
@@ -23,13 +25,7 @@ export default function SetupPanel({ exercise, onExercise, configs, onConfigs, d
     <section className="record-card pad">
       <div className="setup-block">
         <p className="record-section-title">Exercise</p>
-        <div className="chip-row">
-          <button className="chip" aria-pressed={exercise === ''} onClick={() => onExercise('')}>Auto-detect</button>
-          {(Object.keys(exerciseNames) as ExerciseId[]).map(id => (
-            <button key={id} className="chip" aria-pressed={exercise === id} onClick={() => onExercise(id)}>{exerciseNames[id]}</button>
-          ))}
-        </div>
-        {exercise === 'bench' || exercise === '' ? <p className="setup-note">{exercise === '' ? 'Auto-detect needs one full rep from the side. Bench press must be picked manually — landmarks alone can’t tell it from other presses.' : 'Bench press is scored from a side view: bar depth, lockout and tempo.'}</p> : null}
+        <ExercisePicker library={library} exercise={exercise} onExercise={onExercise} />
       </div>
 
       <div className="setup-block">

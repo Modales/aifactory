@@ -2,7 +2,6 @@
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-Exercise = Literal['squat', 'deadlift', 'bench', 'ohp', 'curl', 'lunge']
 View = Literal['auto', 'side', 'frontal', 'oblique']
 
 
@@ -37,7 +36,8 @@ class CameraStream(BaseModel):
 
 class AnalysisRequest(BaseModel):
     streams: list[CameraStream] = Field(min_length=1, max_length=3)
-    confirmedExercise: Exercise | None = None
+    # Any library id, including this user's taught exercises; validated against the library at evaluation time.
+    confirmedExercise: str | None = Field(default=None, min_length=1, max_length=80)
     persist: bool = False
     synchronized: bool = False
 
@@ -48,3 +48,11 @@ class AnalysisRequest(BaseModel):
         if len(self.streams) > 1 and not self.synchronized:
             raise ValueError('Confirm that cameras show the same athlete and offsets align the same movement')
         return self
+
+
+class TeachExerciseRequest(BaseModel):
+    """Teach a new exercise from one recorded set. The spec is derived from the athlete's own reps."""
+    name: str = Field(min_length=2, max_length=60)
+    muscles: list[str] = Field(default_factory=list, max_length=6)
+    streams: list[CameraStream] = Field(min_length=1, max_length=3)
+    synchronized: bool = False

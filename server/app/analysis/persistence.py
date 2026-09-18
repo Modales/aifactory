@@ -16,7 +16,7 @@ def apply_report(payload: EndSessionPayload, result: dict) -> None:
     payload.durationSeconds = result['durationSeconds']
     payload.avgFormScore = result['score']
     payload.peakEffort = 0
-    payload.muscleLoad = type(payload.muscleLoad)(**estimate_muscle_load(result['exercise'], result['reps']))
+    payload.muscleLoad = type(payload.muscleLoad)(**estimate_muscle_load(result['exercise'], result['reps'], result.get('muscleDemand')))
     payload.reps = [RepData(
         rep=r['index'], tempo=r['durationSeconds'], concentricTime=0,
         eccentricTime=0, velocity=0, effort=0,
