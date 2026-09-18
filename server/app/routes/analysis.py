@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 from ..analysis.schemas import AnalysisRequest, TeachExerciseRequest
-from ..analysis.engine import analyze, learn_from, VERSION
+from ..analysis.engine import PROPOSED, analyze, learn_from, VERSION
 from ..analysis.library import FAMILIES, LIBRARY, MUSCLE_IDS, catalog
 from ..database import get_db
 from ..deps import get_current_user, get_optional_user
@@ -24,8 +24,10 @@ async def user_library(db: AsyncSession, user: UserRecord | None) -> dict[str, d
 
 
 @router.get('/capabilities')
-async def capabilities():
+async def capabilities(request: Request):
+    detector = getattr(request.app.state, 'exercise_detector', None)
     return {'modelVersion': VERSION, 'exercises': {id: s['name'] for id, s in LIBRARY.items()}, 'families': FAMILIES,
+            'llmDetection': bool(detector and detector.available), 'detectModel': detector.model if detector and detector.available else None,
             'exerciseCount': len(LIBRARY), 'maxCameras': 3, 'maxFramesPerCamera': 1800,
             'input': '33 normalized MediaPipe landmarks per timestamp', 'validated': False}
 
@@ -52,6 +54,8 @@ async def teach_exercise(payload: TeachExerciseRequest, user: UserRecord = Depen
         spec = await run_in_threadpool(learn_from, request, payload.name, payload.muscles)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error))
+    if payload.family in FAMILIES:
+        spec['family'] = payload.family
     record = CustomExerciseRecord(id=spec['id'], user_id=user.id, name=spec['name'], spec=spec)
     db.add(record)
     await db.commit()
@@ -68,13 +72,14 @@ async def forget_exercise(exercise_id: str, user: UserRecord = Depends(get_curre
 
 
 @router.post('/evaluate')
-async def evaluate(payload: AnalysisRequest, user: UserRecord = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def evaluate(payload: AnalysisRequest, request: Request, user: UserRecord = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     library = await user_library(db, user)
+    detector = getattr(request.app.state, 'exercise_detector', None)
     try:
-        result = await run_in_threadpool(analyze, payload, library)
+        result = await run_in_threadpool(analyze, payload, library, detector)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error))
-    if payload.persist:
+    if payload.persist and result['exercise'] != PROPOSED:
         record = AnalysisRecord(user_id=user.id, model_version=VERSION, result=result)
         db.add(record)
         await db.commit()

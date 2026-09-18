@@ -11,6 +11,7 @@ class Settings:
     openrouter_api_key: str | None
     openrouter_base_url: str
     coach_model: str
+    detect_model: str
 
 
 def load_settings(database_url: str | None = None) -> Settings:
@@ -25,4 +26,6 @@ def load_settings(database_url: str | None = None) -> Settings:
         openrouter_api_key=os.getenv("OPENROUTER_API_KEY"),
         openrouter_base_url=os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
         coach_model=os.getenv("COACH_MODEL", "anthropic/claude-sonnet-4.6"),
+        # Exercise recognition second opinion: small and fast, called only while detection is uncertain.
+        detect_model=os.getenv("DETECT_MODEL", "openai/gpt-4o-mini"),
     )

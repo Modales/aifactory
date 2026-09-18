@@ -19,7 +19,7 @@ export default function LiveHud({ elapsed, report, working, exercise, onExercise
       <div className={`live-cue ${issue ? 'warn' : ''}`}>
         {issue ? <TriangleAlert size={20} /> : <Activity size={20} />}
         <div>
-          <span>{report?.exercise ? report.exerciseName : working ? 'Analyzing…' : 'Waiting for movement'}{lastRep ? ` · rep ${lastRep.index}` : ''}</span>
+          <span>{report?.exercise ? report.exerciseName : report?.proposal ? `${report.proposal.name} · new` : working ? 'Analyzing…' : 'Waiting for movement'}{report?.exercise === 'proposed' ? ' · new' : ''}{lastRep ? ` · rep ${lastRep.index}` : ''}</span>
           {issue
             ? <p>{issue.cue}</p>
             : lastRep

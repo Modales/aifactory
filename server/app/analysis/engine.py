@@ -218,7 +218,34 @@ def root(spec_id, library):
     return library[spec_id]['variantOf'] or spec_id
 
 
-def analyze(payload: AnalysisRequest, library=None):
+PROPOSED = 'proposed'   # provisional id for an exercise the LLM named but the athlete has not added yet
+
+
+def resolve(cameras, detection, library, detector, session_key):
+    """Second opinion when the rules are unsure. Returns (exercise_id, confidence, library, proposal, note)."""
+    candidate, confidence = detection['exercise'], detection['confidence']
+    if confidence >= DETECT_THRESHOLD or detector is None:
+        return (candidate if confidence >= DETECT_THRESHOLD else None), confidence, library, None, None
+    opinion = detector(cameras, detection, library, segments, session_key)
+    if not opinion or opinion['confidence'] < .5:
+        return None, confidence, library, None, None
+    if opinion['exerciseId']:
+        return opinion['exerciseId'], opinion['confidence'], library, None, opinion['reason']
+    new = opinion['newExercise']
+    if not new:
+        return None, confidence, library, None, None
+    from .library import learn
+    try:
+        spec = learn(new['name'], cameras, segments, new['muscles'], exercise_id=PROPOSED)
+    except ValueError:
+        # Named but not enough complete reps yet to build a provisional template; keep the name for the UI.
+        return None, confidence, library, {**new, 'confidence': opinion['confidence'], 'reason': opinion['reason']}, opinion['reason']
+    spec['family'] = new['family']
+    proposal = {**new, 'confidence': opinion['confidence'], 'reason': opinion['reason']}
+    return PROPOSED, opinion['confidence'], {**library, PROPOSED: spec}, proposal, opinion['reason']
+
+
+def analyze(payload: AnalysisRequest, library=None, detector=None):
     library = library or LIBRARY
     cameras = [features(s) for s in payload.streams]
     warnings = []
@@ -236,7 +263,17 @@ def analyze(payload: AnalysisRequest, library=None):
         raise ValueError('Unknown exercise. Pick one from the library or teach it first.')
     detection = classify(cameras, library)
     candidate, confidence = detection['exercise'], detection['confidence']
-    exercise = payload.confirmedExercise or (candidate if confidence >= DETECT_THRESHOLD else None)
+    proposal, note, source = None, None, 'detected'
+    if payload.confirmedExercise:
+        exercise, source = payload.confirmedExercise, 'confirmed'
+    else:
+        exercise, resolved_confidence, library, proposal, note = resolve(cameras, detection, library, detector, payload.sessionKey)
+        if note is not None:
+            confidence, source = resolved_confidence, 'llm'
+            if exercise:
+                candidate = exercise
+                if exercise != PROPOSED and not any(c['id'] == exercise for c in detection['candidates']):
+                    detection['candidates'].insert(0, {'id': exercise, 'name': library[exercise]['name'], 'score': resolved_confidence})
     if payload.confirmedExercise and candidate and root(candidate, library) != root(exercise, library) and confidence >= DETECT_THRESHOLD:
         warnings.append(f"Observed movement looks more like {library[candidate]['name'].lower()} than the confirmed exercise. Verify your selection before saving.")
 
@@ -251,6 +288,8 @@ def analyze(payload: AnalysisRequest, library=None):
         else:
             needed = ' or '.join(spec['views'])
             warnings.append(f"A clear {needed} view is required to count and score {spec['name'].lower()} repetitions." + (' Frontal views add knee-tracking checks.' if 'side' in spec['views'] else ''))
+    elif proposal:
+        warnings.append(f"This looks like {proposal['name'].lower()}, which is not in the library yet. Finish a few full reps, then add it to your library to count and score them.")
     elif candidate:
         warnings.append(f"Movement resembles {library[candidate]['name'].lower()} but is not yet certain. Keep going, or confirm the exercise manually.")
     else:
@@ -266,9 +305,11 @@ def analyze(payload: AnalysisRequest, library=None):
         missing.append('Knee tracking needs an aligned frontal view with hips, knees and feet visible.')
     if spec and spec['custom']:
         missing.append('Taught exercises are checked against your own recorded range and tempo, not a coaching standard.')
-    name = spec['name'] if spec else 'Undetermined'
-    alternatives = detection['alternatives'] if spec and root(spec['id'], library) == root(candidate or spec['id'], library) else []
-    if spec and not alternatives:
+    if exercise == PROPOSED:
+        warnings.insert(0, f"New exercise recognised: {spec['name']}. Reps are counted from your own movement — add it to your library to save this set.")
+    name = spec['name'] if spec else proposal['name'] if proposal else 'Undetermined'
+    alternatives = detection['alternatives'] if spec and source == 'detected' and root(spec['id'], library) == root(candidate or spec['id'], library) else []
+    if spec and not alternatives and exercise != PROPOSED:
         base = root(spec['id'], library)
         alternatives = [{'id': id, 'name': s['name']} for id, s in library.items() if id == base or s['variantOf'] == base]
     return {'modelVersion': VERSION, 'exercise': exercise, 'exerciseName': name,
@@ -276,7 +317,7 @@ def analyze(payload: AnalysisRequest, library=None):
             'primaryJoint': spec['primary'] if spec else None, 'muscleDemand': spec['muscles'] if spec else {},
             'candidate': candidate, 'confidence': confidence, 'candidates': detection['candidates'],
             'alternatives': alternatives if len(alternatives) > 1 else [],
-            'selectionSource': 'confirmed' if payload.confirmedExercise else 'detected',
+            'selectionSource': source, 'detectionNote': note, 'proposal': proposal,
             'status': 'scored' if scores else 'insufficient_evidence', 'repCount': len(reps),
             'score': score, 'reps': reps, 'focus': focus, 'headline': headline(name, reps, score, focus),
             'views': [{k: v for k, v in c.items() if k != 'rows'} for c in cameras],

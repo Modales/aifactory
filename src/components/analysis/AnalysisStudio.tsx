@@ -9,7 +9,7 @@ import SetupPanel from './SetupPanel'
 import LiveHud from './LiveHud'
 import SavePanel from './SavePanel'
 import TeachExercisePanel from './TeachExercisePanel'
-import { evaluate, fetchLibrary, teachExercise, type AnalysisFrame, type AnalysisReport, type CameraStream, type ExerciseId, type ExerciseLibrary } from '@/lib/analysisApi'
+import { evaluate, fetchLibrary, teachExercise, PROPOSED, type AnalysisFrame, type AnalysisReport, type CameraStream, type ExerciseId, type ExerciseLibrary } from '@/lib/analysisApi'
 import { api } from '@/lib/api'
 import { emptyMuscleLoad } from '@/lib/muscleModel'
 import { useAuth } from '@/lib/authContext'
@@ -109,7 +109,7 @@ export default function AnalysisStudio() {
       const input = Object.values(streams.current).map(s => ({ ...s, frames: [...s.frames] }))
       if (!input.length) throw new Error('No body landmarks were captured. Step back so your whole body is in frame and try again.')
       if (input.length !== configs.length) throw new Error('One angle never saw the athlete. Check every camera and try again.')
-      setReport(await evaluate(input, exercise || null, configs.length > 1 && synchronized, true))
+      setReport(await evaluate(input, exercise || null, configs.length > 1 && synchronized, true, workoutId.current))
       setError('')
     } catch (e) { setError((e as Error).message) } finally { setWorking(false) }
   }
@@ -122,13 +122,13 @@ export default function AnalysisStudio() {
     const input = Object.values(streams.current)
     if (!input.length) return
     setWorking(true)
-    try { setReport(await evaluate(input, id, configs.length > 1 && synchronized, true)); setError('') } catch (e) { setError((e as Error).message) } finally { setWorking(false) }
+    try { setReport(await evaluate(input, id, configs.length > 1 && synchronized, true, workoutId.current)); setError('') } catch (e) { setError((e as Error).message) } finally { setWorking(false) }
   }
 
   /** Teach the set just recorded as a new library entry, then re-score it as that exercise. */
-  async function teach(name: string, muscles: string[]) {
+  async function teach(name: string, muscles: string[], family?: string) {
     const input = Object.values(streams.current)
-    const taught = await teachExercise(name, muscles, input, configs.length > 1 && synchronized)
+    const taught = await teachExercise(name, muscles, input, configs.length > 1 && synchronized, family)
     setLibrary(await fetchLibrary())
     await confirm(taught.exercise.id)
     return taught
@@ -146,7 +146,7 @@ export default function AnalysisStudio() {
       const input = Object.values(streams.current)
       if (pending || input.length !== configs.length || input.some(s => s.frames.length < 12)) return
       pending = true; setWorking(true)
-      void evaluate(input, exercise || null, configs.length > 1 && synchronized)
+      void evaluate(input, exercise || null, configs.length > 1 && synchronized, false, workoutId.current)
         .then(r => { if (generation.current === current) { setReport(r); setError('') } })
         .catch(e => { if (generation.current === current) setError(e.message) })
         .finally(() => { pending = false; if (generation.current === current) setWorking(false) })
@@ -220,8 +220,8 @@ export default function AnalysisStudio() {
         <div>
           {stage === 'setup' && <SetupPanel exercise={exercise} onExercise={setExercise} library={library.exercises} configs={configs} onConfigs={updateConfigs} devices={devices} onDetectCameras={detectCameras} synchronized={synchronized} onSynchronized={setSynchronized} />}
           {stage === 'recording' && <AnalysisResults report={report} working={working} />}
-          {stage === 'review' && !working && report && !saved && (teaching || !report.exercise) && (
-            <TeachExercisePanel muscles={library.muscles} working={working} onTeach={teach} onCancel={teaching ? () => setTeaching(false) : undefined} />
+          {stage === 'review' && !working && report && !saved && (teaching || !report.exercise || report.exercise === PROPOSED) && (
+            <TeachExercisePanel muscles={library.muscles} working={working} onTeach={teach} proposal={report.proposal} onCancel={teaching ? () => setTeaching(false) : undefined} />
           )}
           {stage === 'review' && (!teaching || saved) && (
             <SavePanel report={report} working={working} saving={saving} saved={saved} onSave={save} onDiscard={reset}

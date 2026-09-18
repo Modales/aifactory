@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
+from .analysis.llm_detect import LlmDetector
 from .coach import CoachGenerator, OpenRouterCoach
 from .config import load_settings
 from .database import Base, make_engine_and_session_factory
@@ -45,6 +46,7 @@ def create_app(
     app.state.settings = settings
     app.state.engine = engine
     app.state.session_factory = session_factory
+    app.state.exercise_detector = LlmDetector(settings.openrouter_api_key, settings.openrouter_base_url, settings.detect_model)
     app.state.coach_generator = coach_generator or OpenRouterCoach(
         settings.openrouter_api_key, settings.openrouter_base_url, settings.coach_model
     )

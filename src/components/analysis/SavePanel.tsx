@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
 import { CheckCircle2, Globe, GraduationCap, Save, Trash2, Users } from 'lucide-react'
-import type { AnalysisReport, ExerciseId } from '@/lib/analysisApi'
+import { PROPOSED, type AnalysisReport, type ExerciseId } from '@/lib/analysisApi'
 
 interface Props {
   report: AnalysisReport | null
@@ -19,7 +19,8 @@ export default function SavePanel({ report, working, saving, saved, onSave, onDi
   const [caption, setCaption] = useState('')
   const [share, setShare] = useState(true)
   const [visibility, setVisibility] = useState<'public' | 'followers'>('followers')
-  const canSave = !!report?.analysisId && report.score !== null && report.repCount > 0
+  const proposed = report?.exercise === PROPOSED
+  const canSave = !!report?.analysisId && report.score !== null && report.repCount > 0 && !proposed
 
   if (saved) {
     return (
@@ -37,7 +38,7 @@ export default function SavePanel({ report, working, saving, saved, onSave, onDi
   return (
     <section className="record-card pad save-form">
       <h2>{working ? 'Wrapping up…' : canSave ? 'Save your set' : 'Nothing to save yet'}</h2>
-      {!canSave && !working && <p className="report-empty">A set needs at least one fully visible rep to be saved. Move so your whole body stays in frame and try again.</p>}
+      {!canSave && !working && <p className="report-empty">{proposed ? `Add “${report.exerciseName}” to your library above to save this set under its name.` : 'A set needs at least one fully visible rep to be saved. Move so your whole body stays in frame and try again.'}</p>}
       {report && !working && onConfirm && (report.alternatives.length > 1 || (!report.exercise && report.candidates.length > 0)) && (
         <div className="live-alternatives">
           <span>{report.exercise ? `Detected ${report.exerciseName.toLowerCase()} — pick the exact variant:` : 'Not sure what this was — tap the closest match:'}</span>
@@ -46,7 +47,7 @@ export default function SavePanel({ report, working, saving, saved, onSave, onDi
           </div>
         </div>
       )}
-      {report?.exercise && !working && onTeach && <button className="ghost-button teach-link" onClick={onTeach}><GraduationCap size={14} />Not a {report.exerciseName.toLowerCase()}? Teach it as a new exercise</button>}
+      {report?.exercise && !proposed && !working && onTeach && <button className="ghost-button teach-link" onClick={onTeach}><GraduationCap size={14} />Not a {report.exerciseName.toLowerCase()}? Teach it as a new exercise</button>}
       <label>Title / notes<textarea rows={2} maxLength={2000} placeholder={report?.exercise ? `${report.exerciseName} — ${report.repCount} reps` : 'How did it feel?'} value={caption} onChange={e => setCaption(e.target.value)} disabled={!canSave} /></label>
       <label className="sync-confirm" style={{ marginTop: 0 }}><input type="checkbox" checked={share} onChange={e => setShare(e.target.checked)} disabled={!canSave} /><span>Post to my feed</span></label>
       {share && <div className="visibility">

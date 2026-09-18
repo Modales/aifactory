@@ -237,6 +237,70 @@ def test_teach_new_exercise_from_own_reps_then_detect_and_score_it():
         learn_from(payload(streams=[static]),'Nothing',[])
 
 
+def uncertain_library():
+    """A library whose squat signature can't match, so the rules stay below threshold and the LLM is consulted."""
+    from copy import deepcopy
+    lib = deepcopy(LIBRARY)
+    for spec in lib.values():
+        if spec['family'] == 'squat':
+            spec['signature'] = [['hipAnkle', 'median', -.8, .2]]   # demands "lying" — a standing squat now looks foreign
+    return lib
+
+
+def test_llm_second_opinion_picks_a_library_exercise_when_rules_are_unsure():
+    lib = uncertain_library()
+    calls = []
+
+    def detector(cameras, detection, library, segments_fn, session_key):
+        from app.analysis.llm_detect import describe
+        summary = describe(cameras, detection, segments_fn)
+        calls.append((session_key, summary))
+        assert 'knee' in summary and 'standing' in summary and 'cycles seen' in summary
+        return {'exerciseId': 'squat', 'newExercise': None, 'confidence': .82, 'reason': 'knee 80–170°, standing, hands at hips'}
+
+    baseline = analyze(payload(), lib)
+    assert baseline['exercise'] != 'squat'
+    result = analyze(payload(sessionKey='set-1'), lib, detector)
+    assert result['exercise'] == 'squat' and result['selectionSource'] == 'llm' and result['confidence'] == .82
+    assert result['repCount'] == 2 and result['detectionNote'].startswith('knee')
+    assert result['candidates'][0]['id'] == 'squat' and result['proposal'] is None
+    assert calls[0][0] == 'set-1'
+    # Rules already confident → the model is never asked.
+    analyze(payload(), LIBRARY, lambda *a: pytest.fail('detector must not be consulted'))
+
+
+def test_llm_second_opinion_proposes_a_new_exercise_and_counts_reps_provisionally():
+    def detector(cameras, detection, library, segments_fn, session_key):
+        return {'exerciseId': None, 'newExercise': {'name': 'Sissy squat', 'family': 'squat', 'muscles': ['quads']}, 'confidence': .7, 'reason': 'knee travel with an upright torso'}
+    result = analyze(payload(), uncertain_library(), detector)
+    assert result['exercise'] == 'proposed' and result['exerciseName'] == 'Sissy squat' and result['family'] == 'squat'
+    assert result['proposal'] == {'name': 'Sissy squat', 'family': 'squat', 'muscles': ['quads'], 'confidence': .7, 'reason': 'knee travel with an upright torso'}
+    assert result['repCount'] == 2 and result['alternatives'] == [] and result['muscleDemand'] == {'quads': 90}
+    assert any('New exercise recognised' in w for w in result['warnings'])
+    # An unsure or unavailable model leaves the rule verdict untouched.
+    unsure = analyze(payload(), uncertain_library(), lambda *a: {'exerciseId': None, 'newExercise': None, 'confidence': .2, 'reason': ''})
+    assert unsure['exercise'] is None and unsure['selectionSource'] == 'detected' and unsure['proposal'] is None
+    assert analyze(payload(), uncertain_library(), lambda *a: None)['exercise'] is None
+
+
+def test_llm_detector_parses_and_caches_per_session(monkeypatch):
+    from app.analysis import llm_detect
+    from app.analysis.llm_detect import LlmDetector, parse
+    assert parse('```json\n{"exerciseId":"squat","confidence":1.4,"newExercise":{"name":"x"}}\n```') == {'exerciseId': 'squat', 'newExercise': None, 'confidence': 1.0, 'reason': ''}
+    assert parse('{"exerciseId":null,"newExercise":{"name":"Sissy squat","family":"nope","muscles":["quads","bogus"]},"confidence":"0.66"}')['newExercise'] == {'name': 'Sissy squat', 'family': 'custom', 'muscles': ['quads']}
+    assert LlmDetector(None, 'u', 'm')([], {}, LIBRARY, segments, 'k') is None
+    detector = LlmDetector('key', 'u', 'm')
+    answers = iter([{'exerciseId': 'nope', 'newExercise': None, 'confidence': .9, 'reason': 'a'}, {'exerciseId': 'squat', 'newExercise': None, 'confidence': .9, 'reason': 'b'}])
+    monkeypatch.setattr(detector, 'complete', lambda summary, library: next(answers))
+    cameras = [__import__('app.analysis.features', fromlist=['features']).features(payload().streams[0])]
+    detection = {'exercise': None, 'confidence': 0, 'candidates': [], 'alternatives': []}
+    first = detector(cameras, detection, LIBRARY, segments, 'set-9')
+    assert first['exerciseId'] is None and first['confidence'] == .9          # unknown id is dropped, not trusted
+    assert detector(cameras, detection, LIBRARY, segments, 'set-9') is first   # confident answers are cached per set
+    monkeypatch.setattr(detector, 'complete', lambda summary, library: (_ for _ in ()).throw(RuntimeError('boom')))
+    assert detector(cameras, detection, LIBRARY, segments, 'other')['reason'].startswith('unavailable')
+
+
 def test_contract_rejects_invalid_or_unconfirmed_streams():
     s=squat_stream()
     with pytest.raises(ValidationError):payload(streams=[s,s])

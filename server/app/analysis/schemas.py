@@ -40,6 +40,8 @@ class AnalysisRequest(BaseModel):
     confirmedExercise: str | None = Field(default=None, min_length=1, max_length=80)
     persist: bool = False
     synchronized: bool = False
+    # Stable per-recording key so the LLM second opinion is asked once per set, not on every live tick.
+    sessionKey: str | None = Field(default=None, min_length=1, max_length=80)
 
     @model_validator(mode='after')
     def unique_cameras(self):
@@ -54,5 +56,6 @@ class TeachExerciseRequest(BaseModel):
     """Teach a new exercise from one recorded set. The spec is derived from the athlete's own reps."""
     name: str = Field(min_length=2, max_length=60)
     muscles: list[str] = Field(default_factory=list, max_length=6)
+    family: str | None = Field(default=None, max_length=40)
     streams: list[CameraStream] = Field(min_length=1, max_length=3)
     synchronized: bool = False
