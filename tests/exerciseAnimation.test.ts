@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { EXERCISES, ROUTINES, DEMO_SECONDS, exerciseById, playbackPosition } from '../src/lib/exerciseLibrary'
 import { JOINTS, exercisePose, skinWeight } from '../src/lib/exerciseAnimation'
 import { cameraShot } from '../src/lib/exerciseCamera'
+import { EXERCISE_HANDS, exerciseHandPose } from '../src/lib/exerciseHands'
 
 describe('guided exercise demonstrations', () => {
   it('gives every routine a valid sequence and training prescription', () => {
@@ -50,6 +51,16 @@ describe('guided exercise demonstrations', () => {
         expect([...pose.rotations.flat(), ...pose.offset].every(Number.isFinite)).toBe(true)
       }
     }
+  })
+  it('defines an adjustable hand pose for every exercise', () => {
+    expect(Object.keys(EXERCISE_HANDS)).toHaveLength(EXERCISES.length)
+    for (const exercise of EXERCISES) {
+      const rest = exerciseHandPose(exercise.id, 0)
+      const work = exerciseHandPose(exercise.id, 1)
+      expect([...rest.left, ...rest.right, ...work.left, ...work.right].every(Number.isFinite)).toBe(true)
+    }
+    expect(exerciseHandPose('curl', 0).left).not.toEqual(exerciseHandPose('hammer-curl', 0).left)
+    expect(exerciseHandPose('front-raise', 0).left).not.toEqual(exerciseHandPose('front-raise', 1).left)
   })
   it('keeps muscle skin weights normalized and bone assignments rigid', () => {
     for (const y of [.02, .1, .45, .82, .95, 1.05, 1.13, 1.4, 1.6]) {

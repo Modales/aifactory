@@ -1,4 +1,5 @@
 import type { Movement } from './exerciseLibrary'
+import { exerciseHandPose, type HandRotation } from './exerciseHands'
 
 /** BodyParts3D's standing reference, meters, Y-up; left is +X. */
 export const JOINTS = [
@@ -23,7 +24,7 @@ export interface ExercisePose {
   rotations: [number, number, number][]
   offset: [number, number, number]
   intensity: number
-  gripRotation: [number, number, number]
+  gripRotations: [HandRotation, HandRotation]
 }
 
 /** Deterministic educational motion, not captured biomechanics or form-scoring targets. */
@@ -31,7 +32,6 @@ export function exercisePose(movement: Movement, cycle: number): ExercisePose {
   const t = (1 - Math.cos(Math.PI * 2 * cycle)) / 2
   const rotations: [number, number, number][] = JOINTS.map(() => [0, 0, 0])
   const offset: [number, number, number] = [0, 0, 0]
-  const gripRotation: [number, number, number] = [0, 0, 0]
   const both = (left: number, right: number, axis: 0 | 1 | 2, value: number, mirrored = false) => {
     rotations[left][axis] = value
     rotations[right][axis] = mirrored ? -value : value
@@ -118,7 +118,10 @@ export function exercisePose(movement: Movement, cycle: number): ExercisePose {
     floorBody(Math.PI / 2, -.41); both(3, 6, 0, -Math.PI / 2); both(4, 7, 0, Math.PI / 2 - .10)
     rotations[1][0] = -.14 + .28 * t; rotations[2][0] = .2 - .42 * t
   }
-  return { rotations, offset, intensity: .45 + .55 * t, gripRotation }
+  const hands = exerciseHandPose(movement, t)
+  rotations[11] = hands.left
+  rotations[14] = hands.right
+  return { rotations, offset, intensity: .45 + .55 * t, gripRotations: [hands.leftGrip, hands.rightGrip] }
 }
 
 const clamp = (n: number) => Math.max(0, Math.min(1, n))

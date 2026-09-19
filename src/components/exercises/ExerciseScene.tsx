@@ -161,9 +161,9 @@ export default function ExerciseScene({ exercise, cycle, onReady, onError }: Pro
         previous = current.exercise.id
       }
       const pose = applyExercisePose(bones, current.exercise.id, current.cycle)
-      for (const hand of [11, 14]) {
+      for (const [hand, rotation] of [[11, pose.gripRotations[0]], [14, pose.gripRotations[1]]] as const) {
         const dumbbell = weights.userData[hand] as THREE.Group
-        dumbbell.rotation.set(...pose.gripRotation)
+        dumbbell.rotation.set(...rotation)
       }
       fit()
       renderer.render(scene, camera)
