@@ -177,7 +177,7 @@ export default function Terminal() {
         </aside>
       </div>
 
-      {anatomyActivity?.workout && <Suspense fallback={null}><MuscleAnalysis3D summary={anatomyActivity.workout.muscleLoad} title={`${anatomyActivity.workout.exerciseName} muscle story`} onClose={() => setAnatomyActivity(null)} /></Suspense>}
+      {anatomyActivity?.workout && <Suspense fallback={null}><MuscleAnalysis3D initialSkeleton summary={anatomyActivity.workout.muscleLoad} title={`${anatomyActivity.workout.exerciseName} muscle story`} onClose={() => setAnatomyActivity(null)} /></Suspense>}
 
       <OnboardingWizard
         isOpen={showOnboarding}

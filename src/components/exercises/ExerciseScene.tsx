@@ -4,6 +4,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { decodeAnatomyChunk, musclePartIds, type AnatomyAtlas } from '@/lib/anatomyAtlas'
 import { JOINTS, exercisePose, skinWeight } from '@/lib/exerciseAnimation'
 import { cameraShot } from '@/lib/exerciseCamera'
+import { loadExerciseSkin } from '@/lib/exerciseSkin'
 import type { LibraryExercise } from '@/lib/exerciseLibrary'
 import type { MuscleId } from '@/lib/muscleModel'
 
@@ -30,8 +31,8 @@ export default function ExerciseScene({ exercise, cycle, onReady, onError }: Pro
     renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5))
     renderer.outputColorSpace = THREE.SRGBColorSpace
     renderer.toneMapping = THREE.ACESFilmicToneMapping
-    renderer.toneMappingExposure = 1.35
-    renderer.domElement.setAttribute('aria-label', 'Animated skeleton with the working muscles highlighted')
+    renderer.toneMappingExposure = .85
+    renderer.domElement.setAttribute('aria-label', 'Animated human body with skin cutaways revealing the working muscles')
     el.appendChild(renderer.domElement)
     const scene = new THREE.Scene()
     const camera = new THREE.PerspectiveCamera(34, 1, .01, 30)
@@ -53,6 +54,7 @@ export default function ExerciseScene({ exercise, cycle, onReady, onError }: Pro
     const skeleton = new THREE.Skeleton(bones)
     const geometries: THREE.BufferGeometry[] = [], materials: THREE.Material[] = []
     let texture: THREE.DataTexture | undefined, atlas: AnatomyAtlas | undefined, stateData: Uint8Array<ArrayBuffer> | undefined
+    let skin: Awaited<ReturnType<typeof loadExerciseSkin>> | undefined
     const boneMaterial = new THREE.MeshStandardMaterial({ color: '#d9d8cc', roughness: .62, metalness: .04 })
     const muscleMaterial = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: .65, side: THREE.DoubleSide })
     materials.push(boneMaterial, muscleMaterial)
@@ -76,8 +78,20 @@ export default function ExerciseScene({ exercise, cycle, onReady, onError }: Pro
     const fit = () => {
       const current = latest.current
       const shot = cameraShot(current.exercise.cameraFocus, current.cycle, camera.aspect)
-      cameraTarget.fromArray(shot.target)
-      camera.position.fromArray(shot.position)
+      scene.updateMatrixWorld(true)
+      const bodyBounds = new THREE.Box3()
+      const point = new THREE.Vector3()
+      bones.forEach(bone => bodyBounds.expandByPoint(bone.getWorldPosition(point)))
+      bodyBounds.expandByPoint(bones[2].localToWorld(new THREE.Vector3(0, .25, 0)))
+      bodyBounds.expandByScalar(.12)
+      bodyBounds.getCenter(cameraTarget)
+      const radius = bodyBounds.getSize(point).length() / 2
+      const direction = new THREE.Vector3().fromArray(shot.position).sub(new THREE.Vector3().fromArray(shot.target)).normalize()
+      // Reserve breathing room around head, hands and feet at the closest zoom.
+      // Frame the posed body, not a fixed standing target that crops raised arms.
+      const halfFov = Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * Math.min(1, camera.aspect))
+      const distance = radius / Math.sin(halfFov) * 1.45
+      camera.position.copy(cameraTarget).addScaledVector(direction, distance)
       camera.zoom = shot.zoom
       camera.updateProjectionMatrix()
       camera.lookAt(cameraTarget)
@@ -100,7 +114,7 @@ export default function ExerciseScene({ exercise, cycle, onReady, onError }: Pro
           shader.vertexShader = `attribute float partIndex; uniform sampler2D demandMap; uniform float demandWidth; varying float demand;\n${shader.vertexShader}`
           shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\ndemand = texture2D(demandMap, vec2((partIndex + 0.5) / demandWidth, 0.5)).r;')
           shader.fragmentShader = `varying float demand;\n${shader.fragmentShader}`
-          shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb = demand < 0.01 ? vec3(0.18, 0.20, 0.18) : demand > 0.69 ? vec3(0.95, 0.19, 0.055) : vec3(0.72, 0.48, 0.19);')
+          shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb = demand < 0.01 ? vec3(0.38, 0.12, 0.10) : demand > 0.69 ? vec3(0.74, 0.12, 0.065) : vec3(0.68, 0.32, 0.12);')
         }
         const chunk = atlas.chunks[0]
         const data = await decodeAnatomyChunk(await fetch(chunk.gzip!, { signal: abort.signal }), chunk.bytes, true)
@@ -133,13 +147,17 @@ export default function ExerciseScene({ exercise, cycle, onReady, onError }: Pro
           mesh.visible = system !== 'skeletal'
           mesh.bind(skeleton); mesh.frustumCulled = false; scene.add(mesh)
         }
+        skin = await loadExerciseSkin(skeleton, abort.signal, geometries)
+        if (disposed) { skin.geometry.dispose(); skin.material.dispose(); return }
+        geometries.push(skin.geometry); materials.push(skin.material); scene.add(skin.mesh)
+        el.dataset.skin = 'cutaway'
         ready = true
+        renderFrame(performance.now())
       } catch (error) { if (!disposed) onError(error instanceof Error ? error.message : 'Unable to load the exercise model.') }
     })()
-    const animate = (now: number) => {
+    function renderFrame(now: number) {
       if (disposed) return
-      frame = requestAnimationFrame(animate)
-      if (!ready || now - lastRender < 32 || document.hidden) return
+      if (!ready || now - lastRender < 32 || (document.hidden && notified)) return
       lastRender = now
       const current = latest.current
       if (previous !== current.exercise.id && atlas && stateData && texture) {
@@ -149,8 +167,9 @@ export default function ExerciseScene({ exercise, cycle, onReady, onError }: Pro
           atlas.parts.forEach((part, index) => { if (ids.has(part.id)) stateData![index * 4] = Math.round(demand * 2.55) })
         }
         texture.needsUpdate = true
+        skin?.update(atlas, stateData)
         for (const hand of [11, 14]) (weights.userData[hand] as THREE.Group).visible = current.exercise.equipment === 'Dumbbells'
-        previous = current.exercise.id; fit()
+        previous = current.exercise.id
       }
       const pose = exercisePose(current.exercise.id, current.cycle)
       bones[0].position.fromArray(JOINTS[0].at).add(new THREE.Vector3().fromArray(pose.offset))
@@ -165,6 +184,11 @@ export default function ExerciseScene({ exercise, cycle, onReady, onError }: Pro
       el.dataset.movement = current.exercise.id
       el.dataset.pose = pose.rotations.map(r => r.map(v => v.toFixed(3)).join(',')).join('|')
       el.dataset.cycle = current.cycle.toFixed(3)
+    }
+    const animate = (now: number) => {
+      if (disposed) return
+      frame = requestAnimationFrame(animate)
+      renderFrame(now)
     }
     frame = requestAnimationFrame(animate)
     return () => {

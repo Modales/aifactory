@@ -122,6 +122,9 @@ const clamp = (n: number) => Math.max(0, Math.min(1, n))
 /** Two-joint soft-tissue weights with explicit rigid bone assignment. */
 export function skinWeight(name: string, skeletal: boolean, center: number[], point: number[]): { indices: number[]; weights: number[] } {
   const n = name.toLowerCase(), side = center[0] >= 0 ? 0 : 1, y = point[1]
+  // Atlas system tags also include fascia/tendons (e.g. the iliotibial tract).
+  // Only actual bones may be rigid: substring 'tibia' previously pinned the hip fascia to the shin.
+  skeletal = skeletal && /\b(bone|vertebra|rib|humerus|radius|ulna|femur|patella|tibia|fibula|scapula|clavicle|sternum|sacrum|coccyx|mandible|maxilla|tooth|talus|calcaneus)\b/.test(n)
   const pair = (a: number, b: number, weight: number) => ({ indices: [a, b, 0, 0], weights: [1 - weight, weight, 0, 0] })
   const rigid = (i: number) => pair(i, i, 0)
   const upper = side ? 12 : 9, thigh = side ? 6 : 3
@@ -133,8 +136,12 @@ export function skinWeight(name: string, skeletal: boolean, center: number[], po
     if (/tibia|fibula/.test(n)) return rigid(thigh + 1)
     if (/foot|tarsal|metatarsal|toe|calcaneus|talus|sesamoid/.test(n)) return rigid(thigh + 2)
   }
-  const arm = (Math.abs(center[0]) > .165 && center[1] > .65) || /deltoid|biceps brachii|triceps brachii|brachialis/.test(n)
-  const leg = center[1] < .83 || /gluteus|rectus femoris|vastus|adductor|biceps femoris|semitendinosus|semimembranosus/.test(n)
+  // Skin spans the whole body: classify each vertex, not the mesh's center.
+  // The outer pelvis must not accidentally follow the wrists.
+  const arm = n === 'skin'
+    ? y < 1.47 && y > .68 && Math.abs(point[0]) > (y > 1.3 ? .135 : y > 1.08 ? .175 : .215)
+    : (Math.abs(center[0]) > .165 && center[1] > .65) || /deltoid|biceps brachii|triceps brachii|brachialis/.test(n)
+  const leg = (n === 'skin' ? y < .94 : center[1] < .83) || /gluteus|rectus femoris|vastus|adductor|biceps femoris|semitendinosus|semimembranosus/.test(n)
   if (arm) {
     if (skeletal) return rigid(center[1] < .87 ? upper + 2 : center[1] < 1.13 ? upper + 1 : upper)
     if (y > 1.34) return pair(1, upper, clamp((1.43 - y) / .09))

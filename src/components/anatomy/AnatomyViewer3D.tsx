@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
+import { anatomyCameraFrame } from '@/lib/anatomyTransition'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { decodeAnatomyChunk, isDeepMuscle, type AnatomyAtlas, type AnatomyLayer } from '@/lib/anatomyAtlas'
 
@@ -61,6 +62,19 @@ export default function AnatomyViewer3D({ atlas, onSelect, onProgress, onError, 
     controls.minDistance = .18
     controls.maxDistance = 12
     controls.addEventListener('change', () => { dirty = true })
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    let positioned = false
+    let travel: { start: number; fromPosition: THREE.Vector3; fromTarget: THREE.Vector3; toPosition: THREE.Vector3; toTarget: THREE.Vector3 } | null = null
+    controls.addEventListener('start', () => { travel = null; element.dataset.transitioning = 'false' })
+    const moveCamera = (position: THREE.Vector3, target: THREE.Vector3) => {
+      if (!positioned || reducedMotion) {
+        camera.position.copy(position); controls.target.copy(target); controls.update()
+        positioned = true; travel = null
+      } else {
+        travel = { start: performance.now(), fromPosition: camera.position.clone(), fromTarget: controls.target.clone(), toPosition: position, toTarget: target }
+      }
+      dirty = true
+    }
 
     const environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), .04)
     scene.environment = environment.texture
@@ -145,9 +159,8 @@ export default function AnatomyViewer3D({ atlas, onSelect, onProgress, onError, 
 
     const fitBody = (view: LiveState['view']) => {
       const direction = view === 'front' ? new THREE.Vector3(0, .02, 1) : view === 'back' ? new THREE.Vector3(0, .02, -1) : view === 'side' ? new THREE.Vector3(1, .02, 0) : new THREE.Vector3(.45, .08, 1).normalize()
-      controls.target.set(0, .84, 0)
-      camera.position.copy(controls.target).addScaledVector(direction, element.clientWidth < 700 ? 4.6 : 3.8)
-      controls.update(); dirty = true
+      const target = new THREE.Vector3(0, .84, 0)
+      moveCamera(target.clone().addScaledVector(direction, element.clientWidth < 700 ? 4.6 : 3.8), target)
     }
     const fitParts = (ids: string[]) => {
       const wanted = new Set(ids)
@@ -156,14 +169,16 @@ export default function AnatomyViewer3D({ atlas, onSelect, onProgress, onError, 
       if (box.isEmpty()) return
       const center = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3())
       const distance = Math.max(.18, Math.max(size.y, size.x / camera.aspect, size.z) / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) * 1.7)
-      controls.target.copy(center)
-      camera.position.copy(center).add(new THREE.Vector3(.35, .12, 1).normalize().multiplyScalar(distance))
-      controls.update(); dirty = true
+      const names = atlas.parts.filter(part => wanted.has(part.id)).map(part => part.name.toLowerCase()).join(' ')
+      const posterior = /trapezius|latissimus|gluteus|biceps femoris|semitendinosus|semimembranosus|gastrocnemius|soleus|triceps|spinalis|longissimus|iliocostalis|spinal part/.test(names)
+      const direction = new THREE.Vector3(.35, .12, posterior ? -1 : 1).normalize()
+      moveCamera(center.clone().addScaledVector(direction, Math.max(.65, distance)), center)
     }
     const resize = () => {
       camera.aspect = element.clientWidth / Math.max(element.clientHeight, 1)
       camera.updateProjectionMatrix()
       renderer.setSize(element.clientWidth, element.clientHeight)
+      lastFocus = ''
       fitBody(latest.current.view)
     }
     const observer = new ResizeObserver(resize); observer.observe(element)
@@ -208,8 +223,21 @@ export default function AnatomyViewer3D({ atlas, onSelect, onProgress, onError, 
         if (ids.length) fitParts(ids); else fitBody(current.view)
         lastFocus = focusKey
       }
+      if (travel) {
+        const progress = Math.min(1, (performance.now() - travel.start) / 1400)
+        const next = anatomyCameraFrame(travel.fromPosition, travel.fromTarget, travel.toPosition, travel.toTarget, progress)
+        camera.position.copy(next.position); controls.target.copy(next.target)
+        dirty = true
+        if (progress >= 1) travel = null
+      }
       controls.update()
-      if (dirty) { renderer.render(scene, camera); dirty = false }
+      if (dirty) {
+        renderer.render(scene, camera); dirty = false
+        element.dataset.cameraPosition = camera.position.toArray().map(v => v.toFixed(4)).join(',')
+        element.dataset.transitioning = String(!!travel)
+        element.dataset.skeleton = String(current.showSkeleton)
+        element.dataset.loaded = String(loaded === atlas.chunks.length)
+      }
     }
     fitBody(state.view)
     animate()
@@ -217,7 +245,7 @@ export default function AnatomyViewer3D({ atlas, onSelect, onProgress, onError, 
     return () => {
       disposed = true; abort.abort(); cancelAnimationFrame(frame); observer.disconnect(); controls.dispose()
       geometries.forEach(geometry => geometry.dispose()); materials.forEach(material => material.dispose())
-      stateTexture.dispose(); environment.dispose(); renderer.dispose(); renderer.domElement.remove(); floor.geometry.dispose()
+      stateTexture.dispose(); environment.dispose(); renderer.dispose(); renderer.domElement.remove(); floor.geometry.dispose(); (floor.material as THREE.Material).dispose()
     }
   }, [atlas, onError, onProgress])
 

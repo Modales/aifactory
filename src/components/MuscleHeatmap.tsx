@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import FeedMuscleDiagram from './anatomy/FeedMuscleDiagram'
 import type { MuscleId, MuscleLoadSummary } from '@/lib/muscleModel'
 
 type Region = { id: MuscleId; shape: ReactNode }
@@ -38,20 +39,19 @@ const HEAT = ['#f3a127', '#ec7c2e', '#dc5330', '#c53832', '#98252b']
 const LEGACY_MUSCLE_IDS: Record<string, MuscleId> = { chest: 'mid_chest', front_delts: 'anterior_delts', triceps: 'triceps_lateral', biceps: 'biceps_long', core: 'rectus_abdominis' }
 const level = (score: number) => Math.min(4, Math.max(0, Math.ceil(score / 20) - 1))
 
-function ImageDiagram({ summary, compact, realistic = false }: { summary: MuscleLoadSummary; compact: boolean; realistic?: boolean }) {
+function ImageDiagram({ summary, compact }: { summary: MuscleLoadSummary; compact: boolean }) {
   const scores = new Map<MuscleId, number>()
   summary.entries.forEach((entry) => scores.set(LEGACY_MUSCLE_IDS[entry.id] ?? entry.id, entry.score))
 
-  return <div className={`relative mx-auto w-full overflow-hidden ${realistic ? 'bg-[#e7e0d3]' : 'bg-white'} ${compact ? 'max-w-sm' : 'max-w-2xl'}`}>
-    <img src="/images/anatomy-muscle-reference.png" alt="Front, back, and side anatomical muscle diagram" className={`block h-auto w-full ${realistic ? 'mix-blend-multiply contrast-[1.08] saturate-[0.82]' : ''}`} />
+  return <div className={`relative mx-auto w-full overflow-hidden bg-white ${compact ? 'max-w-sm' : 'max-w-2xl'}`}>
+    <img src="/images/anatomy-muscle-reference.png" alt="Front, back, and side anatomical muscle diagram" className="block h-auto w-full" />
     <svg viewBox="0 0 1022 1024" className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true">
       {REGIONS.map(({ id, shape }) => {
         const score = scores.get(id) ?? 0
         if (score <= 0) return null
-        return <g key={id} fill={HEAT[level(score)]} fillOpacity={realistic ? 0.28 + score * 0.0045 : 0.82} style={{ mixBlendMode: realistic ? 'multiply' : 'screen' }}>{shape}</g>
+        return <g key={id} fill={HEAT[level(score)]} fillOpacity="0.82" style={{ mixBlendMode: 'screen' }}>{shape}</g>
       })}
     </svg>
-    {realistic && <div className="pointer-events-none absolute inset-0 shadow-[inset_0_0_32px_rgba(32,24,18,0.16)]" />}
   </div>
 }
 
@@ -61,12 +61,12 @@ export default function MuscleHeatmap({ summary, compact = false, social = false
     return <section className="overflow-hidden border border-[#2a2520] bg-[#e7e0d3] text-[#171512]">
       <div className="flex items-center justify-between border-b border-[#2a2520]/25 px-3 py-2">
         <span className="mono-data text-[8px] font-bold tracking-[0.18em]">ANATOMICAL LOAD</span>
-        <span className="mono-data text-[8px] tracking-[0.14em] text-[#6e6257]">FRONT · BACK · SIDE</span>
+        <span className="mono-data text-[8px] tracking-[0.14em] text-[#6e6257]">FRONT · BACK</span>
       </div>
-      <div className="px-3 pt-2"><ImageDiagram summary={summary} compact realistic /></div>
+      <div className="px-3 pt-2"><FeedMuscleDiagram summary={summary} /></div>
       <div className="px-3 pb-3">
         <div className="mt-1 flex items-center gap-2"><span className="mono-data text-[7px] tracking-[0.12em] text-[#6e6257]">LOW</span><div className="h-1.5 flex-1 bg-gradient-to-r from-[#e6a34b] via-[#d35235] to-[#8f2428]" /><span className="mono-data text-[7px] tracking-[0.12em] text-[#6e6257]">HIGH</span></div>
-        <div className="mt-2 grid grid-cols-3 gap-1.5">{active.map((entry) => <div key={entry.id} className="border-t border-[#2a2520]/30 pt-1"><span className="block truncate text-[9px] font-bold uppercase">{entry.name}</span><span className="mono-data text-[8px] text-[#9b3329]">{entry.score}% LOAD</span></div>)}</div>
+        <div className="mt-2 grid grid-cols-3 gap-1.5">{active.map((entry) => <div key={entry.id} className="border-t border-[#2a2520]/30 pt-1"><span className="block truncate text-[9px] font-bold uppercase">{entry.name}</span><span className="mono-data text-[8px] text-[#9b3329]">{entry.score}/100 DEMAND</span></div>)}</div>
       </div>
     </section>
   }

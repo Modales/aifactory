@@ -4,16 +4,16 @@ import AnatomyViewer3D from './AnatomyViewer3D'
 import { anatomyScores, loadAnatomyAtlas, musclePartIds, type AnatomyAtlas, type AnatomyLayer } from '@/lib/anatomyAtlas'
 import type { MuscleLoadSummary } from '@/lib/muscleModel'
 
-interface Props { summary: MuscleLoadSummary; title?: string; onClose: () => void }
+interface Props { summary: MuscleLoadSummary; title?: string; initialSkeleton?: boolean; onClose: () => void }
 const roleCopy = (score: number) => score >= 70 ? 'Primary driver' : score >= 40 ? 'Strong assistant' : 'Stabilizing contribution'
 
 /** Full-screen muscle story: guided workout playback plus manual layer and mesh exploration. */
-export default function MuscleAnalysis3D({ summary, title = 'Muscle analysis', onClose }: Props) {
+export default function MuscleAnalysis3D({ summary, title = 'Muscle analysis', initialSkeleton = false, onClose }: Props) {
   const [atlas, setAtlas] = useState<AnatomyAtlas | null>(null)
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState('')
   const [layer, setLayer] = useState<AnatomyLayer>('all')
-  const [showSkeleton, setShowSkeleton] = useState(false)
+  const [showSkeleton, setShowSkeleton] = useState(initialSkeleton)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [step, setStep] = useState(0)
   const [playing, setPlaying] = useState(true)
@@ -25,10 +25,10 @@ export default function MuscleAnalysis3D({ summary, title = 'Muscle analysis', o
   }, [])
   const story = summary.entries.filter(entry => entry.score > 0).slice(0, 8)
   useEffect(() => {
-    if (!playing || story.length < 2 || selectedId) return
-    const timer = window.setInterval(() => setStep(value => (value + 1) % story.length), 4200)
+    if (!playing || progress < 100 || story.length < 2 || selectedId) return
+    const timer = window.setInterval(() => setStep(value => (value + 1) % story.length), 6000)
     return () => window.clearInterval(timer)
-  }, [playing, story.length, selectedId])
+  }, [playing, progress, story.length, selectedId])
 
   const scores = useMemo(() => atlas ? anatomyScores(atlas, summary) : new Map<string, number>(), [atlas, summary])
   const current = story[Math.min(step, Math.max(story.length - 1, 0))]
@@ -55,6 +55,7 @@ export default function MuscleAnalysis3D({ summary, title = 'Muscle analysis', o
     </div>
     <aside className="anatomy-story">
       <div className="story-kicker">GUIDED MUSCLE STORY</div>
+      <div className="story-chapter" key={selectedId ?? current?.id ?? 'empty'}>
       {selectedPart ? <>
         <span className="story-count">SELECTED STRUCTURE</span>
         <h3>{selectedPart.name}</h3>
@@ -67,6 +68,7 @@ export default function MuscleAnalysis3D({ summary, title = 'Muscle analysis', o
         <div className="story-meter"><i style={{ width: `${current.score}%` }} /></div>
         <p>{current.role === 'primary' ? 'This muscle group was a main mover for the confirmed exercise.' : 'This group assisted the movement or stabilized the body while the main joints moved.'} Select an individual head in the model to inspect it.</p>
       </> : <p>No muscle-demand estimate is available for this workout.</p>}
+      </div>
       <div className="story-controls">
         <button onClick={() => move(-1)} disabled={story.length < 2} aria-label="Previous muscle"><ChevronLeft /></button>
         <button onClick={() => setPlaying(value => !value)} disabled={story.length < 2} aria-label={playing ? 'Pause muscle story' : 'Play muscle story'}>{playing ? <Pause /> : <Play />}</button>
