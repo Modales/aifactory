@@ -100,8 +100,7 @@ export default function ExerciseScene({ exercise, cycle, onReady, onError }: Pro
           shader.vertexShader = `attribute float partIndex; uniform sampler2D demandMap; uniform float demandWidth; varying float demand;\n${shader.vertexShader}`
           shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\ndemand = texture2D(demandMap, vec2((partIndex + 0.5) / demandWidth, 0.5)).r;')
           shader.fragmentShader = `varying float demand;\n${shader.fragmentShader}`
-          shader.fragmentShader = shader.fragmentShader.replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\nif (demand < 0.01) discard;')
-          shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb = demand > 0.69 ? vec3(0.95, 0.19, 0.055) : vec3(0.72, 0.48, 0.19);')
+          shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb = demand < 0.01 ? vec3(0.18, 0.20, 0.18) : demand > 0.69 ? vec3(0.95, 0.19, 0.055) : vec3(0.72, 0.48, 0.19);')
         }
         const chunk = atlas.chunks[0]
         const data = await decodeAnatomyChunk(await fetch(chunk.gzip!, { signal: abort.signal }), chunk.bytes, true)
@@ -130,6 +129,8 @@ export default function ExerciseScene({ exercise, cycle, onReady, onError }: Pro
           if (!geometry) throw new Error('The exercise model could not be assembled.')
           geometries.push(geometry)
           const mesh = new THREE.SkinnedMesh(geometry, system === 'skeletal' ? boneMaterial : muscleMaterial)
+          // Keep the simplified internal rig out of the rendered muscle silhouette.
+          mesh.visible = system !== 'skeletal'
           mesh.bind(skeleton); mesh.frustumCulled = false; scene.add(mesh)
         }
         ready = true

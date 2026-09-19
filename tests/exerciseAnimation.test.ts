@@ -17,12 +17,16 @@ describe('guided exercise demonstrations', () => {
     expect(EXERCISES.length).toBeGreaterThanOrEqual(24)
     expect(new Set(EXERCISES.map(exercise => exercise.category))).toEqual(new Set(['Strength foundations', 'Bodybuilding accessories', 'Mobility & rehab']))
   })
-  it('cuts through distinct camera views during each repetition', () => {
+  it('orbits and zooms continuously without camera cuts', () => {
     const opening = cameraShot('upper', 0, 1.5)
-    const detail = cameraShot('upper', .4, 1.5)
-    const finish = cameraShot('upper', .75, 1.5)
-    expect(new Set([opening.label, detail.label, finish.label]).size).toBe(3)
+    const quarter = cameraShot('upper', .25, 1.5)
+    const detail = cameraShot('upper', .5, 1.5)
+    const closing = cameraShot('upper', 1, 1.5)
+    expect(quarter.position).not.toEqual(opening.position)
     expect(detail.zoom).toBeGreaterThan(opening.zoom)
+    closing.position.forEach((coordinate, index) => expect(coordinate).toBeCloseTo(opening.position[index]))
+    expect(closing.zoom).toBeCloseTo(opening.zoom)
+    expect(new Set([opening.label, quarter.label, detail.label]).size).toBe(1)
   })
   it('scrubs exactly to a chapter and clamps the endpoint', () => {
     const sequence = ROUTINES[0].steps.map(s => exerciseById(s.exerciseId))

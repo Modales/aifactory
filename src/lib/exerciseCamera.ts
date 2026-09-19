@@ -7,31 +7,24 @@ export interface CameraShot {
   zoom: number
 }
 
-/** Three purposeful views per repetition: establish, technique close-up, finish. */
+const focusSetup: Record<CameraFocus, { target: [number, number, number]; radius: number; height: number; baseAngle: number; zoom: number }> = {
+  full: { target: [0, .82, 0], radius: 3.15, height: 1.35, baseAngle: .7, zoom: 1 },
+  upper: { target: [0, 1.18, 0], radius: 2.35, height: 1.52, baseAngle: .62, zoom: 1.1 },
+  lower: { target: [0, .6, 0], radius: 2.55, height: 1.02, baseAngle: .72, zoom: 1.06 },
+  floor: { target: [0, .4, .1], radius: 2.75, height: 1.08, baseAngle: .82, zoom: 1 },
+}
+
+/** Continuous camera choreography: a slow orbit and eased zoom with no cuts. */
 export function cameraShot(focus: CameraFocus, cycle: number, aspect: number): CameraShot {
-  const phase = cycle < .18 || cycle > .92 ? 0 : cycle < .56 ? 1 : 2
-  const narrow = Math.max(.72, Math.min(1.15, aspect))
-  const shots: Record<CameraFocus, CameraShot[]> = {
-    full: [
-      { label: 'Full movement', position: [2.15, 1.3, 2.75], target: [0, .82, 0], zoom: narrow },
-      { label: 'Hip position', position: [1.72, 1.08, 1.9], target: [0, .8, -.02], zoom: narrow * 1.08 },
-      { label: 'Finish position', position: [-1.85, 1.35, 2.5], target: [0, .9, 0], zoom: narrow },
-    ],
-    upper: [
-      { label: 'Upper-body setup', position: [1.75, 1.55, 2.35], target: [0, 1.18, 0], zoom: narrow * 1.08 },
-      { label: 'Grip and elbow', position: [.95, 1.43, 1.55], target: [0, 1.17, 0], zoom: narrow * 1.25 },
-      { label: 'Shoulder control', position: [-1.55, 1.52, 2.05], target: [0, 1.2, 0], zoom: narrow * 1.1 },
-    ],
-    lower: [
-      { label: 'Full lower body', position: [2.05, 1.16, 2.55], target: [0, .65, 0], zoom: narrow },
-      { label: 'Knee and hip', position: [1.22, .83, 1.5], target: [0, .57, .02], zoom: narrow * 1.23 },
-      { label: 'Foot pressure', position: [-1.35, .72, 1.78], target: [0, .36, .02], zoom: narrow * 1.15 },
-    ],
-    floor: [
-      { label: 'Full movement', position: [2.35, 1.15, 1.9], target: [0, .38, .12], zoom: narrow },
-      { label: 'Trunk control', position: [1.35, .82, 1.25], target: [0, .48, .08], zoom: narrow * 1.18 },
-      { label: 'Alignment view', position: [-1.9, 1.25, 1.55], target: [0, .42, .08], zoom: narrow * 1.04 },
-    ],
+  const setup = focusSetup[focus]
+  const turn = Math.sin(cycle * Math.PI * 2) * .48
+  const zoomPulse = (1 - Math.cos(cycle * Math.PI * 2)) / 2
+  const angle = setup.baseAngle + turn
+  const framing = Math.max(.76, Math.min(1.12, aspect))
+  return {
+    label: 'Smooth orbit + auto zoom',
+    position: [Math.sin(angle) * setup.radius, setup.height, Math.cos(angle) * setup.radius],
+    target: setup.target,
+    zoom: setup.zoom * framing * (1 + zoomPulse * .2),
   }
-  return shots[focus][phase]
 }

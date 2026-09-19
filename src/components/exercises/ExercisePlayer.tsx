@@ -41,7 +41,7 @@ export default function ExercisePlayer({ sequence, routine }: Props) {
     <div className="exercise-theater">
       <Suspense fallback={null}><ExerciseScene exercise={exercise} cycle={cycle} onReady={onReady} onError={setError} /></Suspense>
       {(!ready || error) && <div className="exercise-loading" role="status">{!error && <Loader2 className="animate-spin" />}<strong>{error ? 'Playback unavailable' : 'Preparing your anatomy studio'}</strong><span>{error || 'Loading the detailed skeleton and muscle model…'}</span></div>}
-      <div className="theater-topline"><span><i /> MOVEMENT STUDIO</span><span><Camera size={12} /> AUTO DIRECTOR · {shot.label}</span></div>
+      <div className="theater-topline"><span><i /> MOVEMENT STUDIO</span><span><Camera size={12} /> {shot.label.toUpperCase()}</span></div>
       <div className="theater-heading"><p>{routine ? `ROUTINE PREVIEW / ${String(index + 1).padStart(2, '0')} OF ${String(sequence.length).padStart(2, '0')}` : `${exercise.category.toUpperCase()} · GUIDED 3D`}</p><h2 data-testid="playing-exercise">{exercise.name}</h2></div>
       <div className="theater-legend"><span><i /> Main movers</span><span><i /> Assisting muscles</span></div>
       <div className="theater-coach" aria-live="polite"><span>COACH CUE · {String(phase + 1).padStart(2, '0')}</span><strong>{ended ? 'Preview complete' : exercise.phases[phase]}</strong><p>{exercise.cues[phase]}</p></div>
