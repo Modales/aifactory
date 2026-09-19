@@ -1,4 +1,4 @@
-import { Check, ShieldCheck, TriangleAlert } from 'lucide-react'
+import { Check, MessageSquareText, ShieldCheck, TriangleAlert } from 'lucide-react'
 import { formatMeasure, type AnalysisReport } from '@/lib/analysisApi'
 
 const minutes = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.round(seconds % 60)).padStart(2, '0')}`
@@ -35,6 +35,14 @@ export default function AnalysisResults({ report, working }: { report: AnalysisR
               </div>
             </div>
           ))}
+        </div>
+      </>}
+
+      {report.coach && (report.coach.cues.length > 0 || report.coach.camera) && <>
+        <p className="record-section-title">Coach notes</p>
+        <div className="focus-list">
+          {report.coach.cues.map(cue => <div key={cue} className="focus-item"><MessageSquareText size={16} /><div><p>{cue}</p></div></div>)}
+          {report.coach.camera && <div className="focus-item"><MessageSquareText size={16} /><div><strong>Camera</strong><p>{report.coach.camera}</p></div></div>}
         </div>
       </>}
 

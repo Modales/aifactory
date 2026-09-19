@@ -7,8 +7,9 @@ View = Literal['auto', 'side', 'frontal', 'oblique']
 
 class Landmark(BaseModel):
     model_config = ConfigDict(allow_inf_nan=False)
-    x: float = Field(ge=-2, le=3)
-    y: float = Field(ge=-2, le=3)
+    # MediaPipe places off-frame joints well outside the image; features.py only trusts 0–1 anyway.
+    x: float = Field(ge=-50, le=50)
+    y: float = Field(ge=-50, le=50)
     visibility: float = Field(default=0, ge=0, le=1)
 
 

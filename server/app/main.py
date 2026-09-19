@@ -1,11 +1,15 @@
+import logging
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from .analysis.llm_detect import LlmDetector
+from .analysis.llm_coach import LlmCoach
 from .coach import CoachGenerator, OpenRouterCoach
 from .config import load_settings
 from .database import Base, make_engine_and_session_factory
@@ -47,9 +51,18 @@ def create_app(
     app.state.engine = engine
     app.state.session_factory = session_factory
     app.state.exercise_detector = LlmDetector(settings.openrouter_api_key, settings.openrouter_base_url, settings.detect_model)
+    app.state.form_coach = LlmCoach(settings.openrouter_api_key, settings.openrouter_base_url, settings.detect_model)
     app.state.coach_generator = coach_generator or OpenRouterCoach(
         settings.openrouter_api_key, settings.openrouter_base_url, settings.coach_model
     )
+
+    @app.exception_handler(RequestValidationError)
+    async def log_validation_error(request: Request, exc: RequestValidationError):
+        # Landmark payloads are large; log only where and why validation failed, never the data.
+        first = exc.errors()[0] if exc.errors() else {}
+        logging.getLogger("aifactory.validation").warning(
+            "%s %s rejected: %s at %s", request.method, request.url.path, first.get("msg"), ".".join(str(p) for p in first.get("loc", ())))
+        return JSONResponse(status_code=422, content={"detail": [{"loc": e.get("loc"), "msg": e.get("msg"), "type": e.get("type")} for e in exc.errors()[:3]]})
 
     app.add_middleware(
         CORSMiddleware,

@@ -9,6 +9,8 @@ interface Props { elapsed: number; report: AnalysisReport | null; working: boole
 export default function LiveHud({ elapsed, report, working, exercise, onExercise }: Props) {
   const lastRep = report?.reps.at(-1)
   const issue = lastRep?.checks.filter(c => !c.passed).sort((a, b) => a.score - b.score)[0]
+  // When the rule checks have nothing measurable to say, fall back to the coach's plain-language cue.
+  const coachCue = report?.coach?.cues[0]
   return (
     <>
       <div className="live-hud">
@@ -24,8 +26,11 @@ export default function LiveHud({ elapsed, report, working, exercise, onExercise
             ? <p>{issue.cue}</p>
             : lastRep
               ? <p>Rep {lastRep.index} passed every visible check — keep that rhythm.</p>
-              : <p>{report?.exercise ? 'Complete a full rep to get your first cue.' : 'Do one full rep from the side so the exercise can be identified.'}</p>}
+              : coachCue
+                ? <p>{coachCue}</p>
+                : <p>{report?.exercise ? 'Complete a full rep to get your first cue.' : 'Do one full rep from the side so the exercise can be identified.'}</p>}
           {report && !report.exercise && report.warnings[0] && <small>{report.warnings[0]}</small>}
+          {report?.exercise && !lastRep && (report.coach?.camera || report.warnings[0]) && <small>{report.coach?.camera || report.warnings[0]}</small>}
         </div>
       </div>
       {report?.exercise && !exercise && report.alternatives.length > 1 && (

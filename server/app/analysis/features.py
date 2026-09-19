@@ -8,7 +8,7 @@ from math import acos, degrees, hypot
 from statistics import median
 from .schemas import CameraStream
 
-VIS = .65
+VIS = .55   # MediaPipe reports lower visibility for prone/floor positions (push-ups, planks) than for standing
 ANGLE_KEYS = ('knee', 'hip', 'elbow', 'shoulder', 'ankle')
 # MediaPipe indices: shoulder 11/12, elbow 13/14, wrist 15/16, hip 23/24, knee 25/26, ankle 27/28, foot 31/32.
 
@@ -32,7 +32,7 @@ def frame_features(p, side, ratio):
         return (p[i].x * ratio, p[i].y)
 
     def seen(*indices):
-        return all(p[i].visibility >= VIS and 0 <= p[i].x <= 1 and 0 <= p[i].y <= 1 for i in indices)
+        return all(p[i].visibility >= VIS and -.05 <= p[i].x <= 1.05 and -.05 <= p[i].y <= 1.05 for i in indices)
 
     def joint(*indices):
         return angle(*(point(i) for i in indices)) if seen(*indices) else None

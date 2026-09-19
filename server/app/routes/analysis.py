@@ -27,7 +27,7 @@ async def user_library(db: AsyncSession, user: UserRecord | None) -> dict[str, d
 async def capabilities(request: Request):
     detector = getattr(request.app.state, 'exercise_detector', None)
     return {'modelVersion': VERSION, 'exercises': {id: s['name'] for id, s in LIBRARY.items()}, 'families': FAMILIES,
-            'llmDetection': bool(detector and detector.available), 'detectModel': detector.model if detector and detector.available else None,
+            'llmDetection': bool(detector and detector.available), 'llmCoach': bool(detector and detector.available), 'detectModel': detector.model if detector and detector.available else None,
             'exerciseCount': len(LIBRARY), 'maxCameras': 3, 'maxFramesPerCamera': 1800,
             'input': '33 normalized MediaPipe landmarks per timestamp', 'validated': False}
 
@@ -75,8 +75,9 @@ async def forget_exercise(exercise_id: str, user: UserRecord = Depends(get_curre
 async def evaluate(payload: AnalysisRequest, request: Request, user: UserRecord = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     library = await user_library(db, user)
     detector = getattr(request.app.state, 'exercise_detector', None)
+    coach = getattr(request.app.state, 'form_coach', None)
     try:
-        result = await run_in_threadpool(analyze, payload, library, detector)
+        result = await run_in_threadpool(analyze, payload, library, detector, coach)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error))
     if payload.persist and result['exercise'] != PROPOSED:

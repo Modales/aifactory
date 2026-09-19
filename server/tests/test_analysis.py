@@ -369,3 +369,48 @@ async def test_custom_exercise_routes_are_owned_and_usable(app_and_client):
     assert (await client.post('/api/analysis/evaluate',json={'streams':[squat_stream()],'confirmedExercise':new_id},headers=other)).status_code==422
     assert (await client.delete(f'/api/analysis/exercises/{new_id}',headers=other)).status_code==404
     assert (await client.delete(f'/api/analysis/exercises/{new_id}',headers=auth)).status_code==204
+
+
+def _rep_rows(frames, reps, **signals):
+    """Feature rows for ``reps`` cycles; each signal is (rest_value, work_value) or a constant."""
+    rows=[]
+    for i in range(frames):
+        d=(1-cos(i/(frames-1)*2*pi*reps))/2
+        row={'t':i*200,'otherKnee':None,'kneeAsym':None,'hipAsym':None,'overhead':None}
+        for k,v in signals.items(): row[k]=v[0]+(v[1]-v[0])*d if isinstance(v,tuple) else v
+        rows.append(row)
+    return rows
+
+
+def test_confirmed_pushup_counts_foreshortened_reps_and_reports_shallow_depth():
+    from app.analysis.engine import count_reps
+    # Laptop webcam at floor level: the elbow reads 100–140° instead of 90–170°. The old fixed 150° gate never opened.
+    rows=_rep_rows(60,3,elbow=(140,100),trunk=80,hip=170,knee=175,wristY=(-1,-.4),hipAnkle=.2)
+    found,signal=count_reps(LIBRARY['pushup'],{'id':'c','view':'side','rows':rows})
+    assert len(found)==3 and signal=='elbow'
+    # Depth is still judged against the coaching standard, so the athlete hears that 100° is short of 95°.
+    rep=evaluate_rep(LIBRARY['pushup'],*found[0],[{'id':'c','view':'side','rows':rows}])
+    depth=next(c for c in rep['checks'] if c['name']=='Push-up depth')
+    assert not depth['passed'] and '100' in depth['cue']
+
+
+def test_confirmed_pushup_counts_from_shoulder_height_when_elbow_hidden():
+    from app.analysis.engine import count_reps
+    rows=_rep_rows(60,3,elbow=None,trunk=80,hip=170,knee=175,wristY=(-1,-.35),hipAnkle=.2)
+    found,signal=count_reps(LIBRARY['pushup'],{'id':'c','view':'side','rows':rows})
+    assert len(found)==3 and signal=='wristY'
+
+
+def test_static_hold_still_counts_nothing_with_adaptive_gates():
+    from app.analysis.engine import count_reps
+    rows=_rep_rows(60,3,elbow=(170,162),trunk=80,hip=170,knee=175,wristY=(-1,-.95),hipAnkle=.2)
+    assert count_reps(LIBRARY['pushup'],{'id':'c','view':'side','rows':rows})[0]==[]
+
+
+def test_coach_notes_are_attached_and_optional():
+    calls=[]
+    def coach(name,summary,reps,session_key=None,seconds=0):
+        calls.append(name); return {'cues':['Lower until the elbows reach 90°.'],'camera':''}
+    result=analyze(payload(confirmedExercise='squat'),coach=coach)
+    assert result['coach']['cues'] and calls==['Squat']
+    assert 'coverage' in result['views'][0] and analyze(payload(confirmedExercise='squat'))['coach'] is None

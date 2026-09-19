@@ -115,6 +115,71 @@ def segments(rows, key='knee', rest=150, work=125, cycle='flex', min_seconds=.7)
     return result
 
 
+MIN_RANGE = 20          # degrees the primary joint must travel before any rep can count
+MIN_COVERAGE = .5       # share of frames the primary joint must be visible in to drive counting
+# When the primary joint is hidden or foreshortened, a body-position signal that rises and falls
+# with every rep of that joint's movement can still count reps (never grade them).
+PROXIES = {'elbow': ('wristY', .25, 'the height of the shoulders above the hands'),
+           'shoulder': ('wristY', .3, 'the height of the hands relative to the shoulders'),
+           'knee': ('hipAnkle', .3, 'the height of the hips above the feet'),
+           'hip': ('hipAnkle', .3, 'the height of the hips above the feet'),
+           'trunk': ('hipAnkle', .3, 'the height of the hips above the feet')}
+JOINT_HINTS = {'elbow': 'shoulder, elbow and wrist', 'knee': 'hip, knee and ankle', 'hip': 'shoulder, hip and knee',
+               'shoulder': 'elbow, shoulder and hip', 'ankle': 'knee, ankle and foot', 'trunk': 'shoulders and hips'}
+
+
+def coverage(rows, key):
+    """Share of frames (0–1) in which a signal was visible enough to trust."""
+    return round(sum(r.get(key) is not None for r in rows) / len(rows), 2) if rows else 0
+
+
+def adaptive_gates(rows, key, cycle, rest, work, min_range):
+    """Relax the spec's rest/work gates toward the athlete's own observed range.
+
+    A foreshortened elbow that only reads 100–140° never crosses a 150° rest gate even though the
+    push-up is obvious. The gates move inward only — never outward — so a full-range rep is still
+    judged by the spec, while a shallow or oblique one still counts (its depth check will say so).
+    Returns None when the signal barely moves.
+    """
+    lo, hi = stat(rows, key, 'p10', MIN_COVERAGE), stat(rows, key, 'p90', MIN_COVERAGE)
+    if lo is None or hi - lo < min_range:
+        return None
+    span = hi - lo
+    if cycle == 'flex':
+        rest, work = min(rest, hi - .2 * span), max(work, lo + .35 * span)
+        if rest - work < .2 * span:
+            work = rest - .2 * span
+    else:
+        rest, work = max(rest, lo + .2 * span), min(work, hi - .35 * span)
+        if work - rest < .2 * span:
+            work = rest + .2 * span
+    return rest, work
+
+
+def count_reps(spec, camera):
+    """Segment reps on the spec's primary joint, or on a proxy signal when that joint is unusable.
+
+    Returns (segments, signal) — ``signal`` is the spec's primary joint or the proxy key used.
+    """
+    rows, key = camera['rows'], spec['primary']
+    if coverage(rows, key) >= MIN_COVERAGE:
+        gates = adaptive_gates(rows, key, spec['cycle'], spec['rest'], spec['work'], MIN_RANGE)
+        if gates:
+            return segments(rows, key, gates[0], gates[1], spec['cycle'], spec['minSeconds']), key
+    proxy = PROXIES.get(key)
+    if not proxy:
+        return [], key
+    proxy_key, min_range, _ = proxy
+    lo, hi, start = stat(rows, proxy_key, 'p10', MIN_COVERAGE), stat(rows, proxy_key, 'p90', MIN_COVERAGE), stat(rows, proxy_key, 'start', MIN_COVERAGE)
+    if lo is None or hi - lo < min_range:
+        return [], key
+    span = hi - lo
+    cycle = 'flex' if start >= (lo + hi) / 2 else 'extend'    # rest at the high end, or at the low end
+    rest = hi - .25 * span if cycle == 'flex' else lo + .25 * span
+    work = lo + .4 * span if cycle == 'flex' else hi - .4 * span
+    return segments(rows, proxy_key, rest, work, cycle, spec['minSeconds']), proxy_key
+
+
 # ─── Per-rep grading ───────────────────────────────────────────────────────────────────────────
 def graded(check, camera, value):
     """Score one visible check 0–100 by how far the measurement sits outside its target band."""
@@ -245,7 +310,7 @@ def resolve(cameras, detection, library, detector, session_key):
     return PROPOSED, opinion['confidence'], {**library, PROPOSED: spec}, proposal, opinion['reason']
 
 
-def analyze(payload: AnalysisRequest, library=None, detector=None):
+def analyze(payload: AnalysisRequest, library=None, detector=None, coach=None):
     library = library or LIBRARY
     cameras = [features(s) for s in payload.streams]
     warnings = []
@@ -281,10 +346,23 @@ def analyze(payload: AnalysisRequest, library=None, detector=None):
     spec = library.get(exercise)
     if spec:
         usable = [c for c in cameras if c['view'] in spec['views']]
+        estimated = [c for c in cameras if c['viewSource'] == 'estimated']
+        if not usable and source == 'confirmed' and estimated:
+            # The athlete told us the exercise; an estimated oblique/unknown angle must not silence it.
+            best = max(estimated, key=lambda c: coverage(c['rows'], spec['primary']))
+            relabeled = {**best, 'view': spec['views'][0], 'viewSource': 'assumed'}
+            cameras = [relabeled if c is best else c for c in cameras]
+            usable = [relabeled]
+            warnings.append(f"Camera angle was estimated as {best['view']}; scoring as a {spec['views'][0]} view because you confirmed {spec['name'].lower()}. Angles may be foreshortened — a true {spec['views'][0]} view is more accurate.")
         if usable:
-            primary = max(usable, key=lambda c: sum(r.get(spec['primary']) is not None for r in c['rows']))
-            reps = [dict(index=i + 1, **evaluate_rep(spec, start, end, cameras))
-                    for i, (start, end) in enumerate(segments(primary['rows'], spec['primary'], spec['rest'], spec['work'], spec['cycle'], spec['minSeconds']))]
+            primary = max(usable, key=lambda c: coverage(c['rows'], spec['primary']))
+            found, signal = count_reps(spec, primary)
+            reps = [dict(index=i + 1, **evaluate_rep(spec, start, end, cameras)) for i, (start, end) in enumerate(found)]
+            seen = coverage(primary['rows'], spec['primary'])
+            if seen < MIN_COVERAGE:
+                warnings.append(f"Your {spec['primary']} was visible in only {round(seen * 100)}% of frames. Move the camera so your {JOINT_HINTS.get(spec['primary'], spec['primary'])} stay in frame for the whole rep.")
+            if signal != spec['primary'] and found:
+                warnings.append(f"Reps were counted from {PROXIES[spec['primary']][2]} because the {spec['primary']} was not measurable; form checks need the {spec['primary']} in view.")
         else:
             needed = ' or '.join(spec['views'])
             warnings.append(f"A clear {needed} view is required to count and score {spec['name'].lower()} repetitions." + (' Frontal views add knee-tracking checks.' if 'side' in spec['views'] else ''))
@@ -312,6 +390,13 @@ def analyze(payload: AnalysisRequest, library=None, detector=None):
     if spec and not alternatives and exercise != PROPOSED:
         base = root(spec['id'], library)
         alternatives = [{'id': id, 'name': s['name']} for id, s in library.items() if id == base or s['variantOf'] == base]
+    duration = round((max(c['rows'][-1]['t'] for c in cameras) - min(c['rows'][0]['t'] for c in cameras)) / 1000, 2)
+    coach_notes = None
+    if spec and coach is not None and (reps or duration >= 5):
+        from .llm_detect import describe
+        summary = describe(cameras, detection, segments) + '\nJoint visibility: ' + ', '.join(
+            f"{k} {round(coverage(c['rows'], k) * 100)}%" for c in cameras for k in ('elbow', 'shoulder', 'hip', 'knee', 'trunk'))
+        coach_notes = coach(spec['name'], summary, reps, payload.sessionKey, duration)
     return {'modelVersion': VERSION, 'exercise': exercise, 'exerciseName': name,
             'family': spec['family'] if spec else None, 'familyName': FAMILIES.get(spec['family'], spec['family']) if spec else None,
             'primaryJoint': spec['primary'] if spec else None, 'muscleDemand': spec['muscles'] if spec else {},
@@ -320,9 +405,11 @@ def analyze(payload: AnalysisRequest, library=None, detector=None):
             'selectionSource': source, 'detectionNote': note, 'proposal': proposal,
             'status': 'scored' if scores else 'insufficient_evidence', 'repCount': len(reps),
             'score': score, 'reps': reps, 'focus': focus, 'headline': headline(name, reps, score, focus),
-            'views': [{k: v for k, v in c.items() if k != 'rows'} for c in cameras],
+            'coach': coach_notes,
+            'views': [{**{k: v for k, v in c.items() if k != 'rows'},
+                       'coverage': {k: coverage(c['rows'], k) for k in ('elbow', 'shoulder', 'hip', 'knee', 'ankle', 'trunk')}} for c in cameras],
             'warnings': warnings, 'notAssessed': missing, 'disclaimer': DISCLAIMER,
-            'durationSeconds': round((max(c['rows'][-1]['t'] for c in cameras) - min(c['rows'][0]['t'] for c in cameras)) / 1000, 2)}
+            'durationSeconds': duration}
 
 
 def learn_from(payload: AnalysisRequest, name, muscles=()):
