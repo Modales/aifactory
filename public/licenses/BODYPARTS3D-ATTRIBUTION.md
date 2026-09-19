@@ -15,6 +15,10 @@ Source OBJ comments mention an older CC BY-SA 2.1 Japan license. The official cu
 
 BodyParts3D represents an adult male reference anatomy based on TARO MRI and anatomical illustration refinements. It is not a complete model of every possible human anatomical structure or variation. This interface is educational and is not a clinical tool.
 
+## Exercise demonstration adaptation
+
+`exercise-atlas.json` and `exercise-body.bin.gz` contain a curated subset of the above skeleton and muscle meshes, repacked without changing their source identities. The exercise studio applies a procedural joint rig with blended muscle weights and illustrative movement cycles. These animations are authored demonstrations, not motion-capture recordings, validated biomechanics, or measurements of individual muscle activation.
+
 ## Historical assets (not included in the current release)
 
 Earlier repository revisions included female reference anatomy: Kristen Browne and Heidi Schlehlein, Human Reference Atlas / HuBMAP, *3D Reference Organ Set for Female v1.5* (2023). CC BY 4.0. Geometry adapted for this viewer.
