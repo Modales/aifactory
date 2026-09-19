@@ -76,7 +76,7 @@ function FeedCard({ item, onReact, onAnatomy }: { item: SocialActivity; onReact:
             </div>
             {item.workout.muscleLoad.entries.length > 0 && (
               <div className="col-span-2">
-                <MuscleHeatmap summary={item.workout.muscleLoad} compact />
+                <MuscleHeatmap summary={item.workout.muscleLoad} social />
                 <button type="button" onClick={() => onAnatomy(item)} className="mt-2 flex w-full items-center justify-center gap-2 border-2 border-foreground bg-foreground px-3 py-2 mono-data text-[9px] font-bold tracking-[0.14em] text-background"><Rotate3D className="h-4 w-4 text-primary" />EXPLORE IN 3D</button>
               </div>
             )}
