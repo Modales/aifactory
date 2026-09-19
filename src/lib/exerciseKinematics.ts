@@ -78,7 +78,7 @@ export function applyExercisePose(bones: THREE.Bone[], movement: Movement, cycle
     for (const leg of [3, 6]) worldRotation(bones[leg + 2], TOE_STAND)
     anchor(bones, 5, v(.045, -.068, .156), v(.13, .012, -.84))
     for (const [arm, side] of [[9, 1], [12, -1]]) {
-      hand(arm, v(side * .27, PALM_HEIGHT, .43), v(side * .55, .25, .02))
+      hand(arm, v(side * .27, PALM_HEIGHT, .43), v(side * .55, .18, .42))
     }
   } else if (movement === 'bird-dog' || movement === 'cat-cow') {
     // Knees remain under hips; untucked feet lie behind the shins, not through the floor.

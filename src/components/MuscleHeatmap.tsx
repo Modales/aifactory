@@ -56,20 +56,7 @@ function ImageDiagram({ summary, compact }: { summary: MuscleLoadSummary; compac
 }
 
 export default function MuscleHeatmap({ summary, compact = false, social = false }: { summary: MuscleLoadSummary; compact?: boolean; social?: boolean }) {
-  if (social) {
-    const active = summary.entries.filter((entry) => entry.score > 0).slice(0, 3)
-    return <section className="overflow-hidden border border-[#2a2520] bg-[#e7e0d3] text-[#171512]">
-      <div className="flex items-center justify-between border-b border-[#2a2520]/25 px-3 py-2">
-        <span className="mono-data text-[8px] font-bold tracking-[0.18em]">ANATOMICAL LOAD</span>
-        <span className="mono-data text-[8px] tracking-[0.14em] text-[#6e6257]">FRONT · BACK</span>
-      </div>
-      <div className="px-3 pt-2"><FeedMuscleDiagram summary={summary} /></div>
-      <div className="px-3 pb-3">
-        <div className="mt-1 flex items-center gap-2"><span className="mono-data text-[7px] tracking-[0.12em] text-[#6e6257]">LOW</span><div className="h-1.5 flex-1 bg-gradient-to-r from-[#e6a34b] via-[#d35235] to-[#8f2428]" /><span className="mono-data text-[7px] tracking-[0.12em] text-[#6e6257]">HIGH</span></div>
-        <div className="mt-2 grid grid-cols-3 gap-1.5">{active.map((entry) => <div key={entry.id} className="border-t border-[#2a2520]/30 pt-1"><span className="block truncate text-[9px] font-bold uppercase">{entry.name}</span><span className="mono-data text-[8px] text-[#9b3329]">{entry.score}/100 DEMAND</span></div>)}</div>
-      </div>
-    </section>
-  }
+  if (social) return <FeedMuscleDiagram summary={summary} />
   if (compact) return <section className="border border-black bg-white p-2 text-black"><ImageDiagram summary={summary} compact /><div className="mt-2 flex h-2 overflow-hidden">{HEAT.map((colour) => <span key={colour} className="flex-1" style={{ backgroundColor: colour }} />)}</div></section>
 
   const activeMuscles = summary.entries.filter((entry) => entry.score > 0).slice(0, 8)

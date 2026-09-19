@@ -61,6 +61,30 @@ describe('library support geometry', () => {
       }
     }
   })
+  it('keeps the push-up symmetric and lowers the torso between fixed supports', () => {
+    const bones = createExerciseRig()
+    applyExercisePose(bones, 'pushup', 0)
+    const openingShoulder = (bones[9].getWorldPosition(new THREE.Vector3()).y + bones[12].getWorldPosition(new THREE.Vector3()).y) / 2
+    applyExercisePose(bones, 'pushup', .5)
+    const workingShoulder = (bones[9].getWorldPosition(new THREE.Vector3()).y + bones[12].getWorldPosition(new THREE.Vector3()).y) / 2
+    expect(workingShoulder).toBeLessThan(openingShoulder - .15)
+    expect(bones[10].getWorldPosition(new THREE.Vector3()).x).toBeGreaterThan(0)
+    expect(bones[13].getWorldPosition(new THREE.Vector3()).x).toBeLessThan(0)
+    expect(bones[9].getWorldPosition(new THREE.Vector3()).y).toBeCloseTo(bones[12].getWorldPosition(new THREE.Vector3()).y, 6)
+  })
+  it('keeps all four cat-cow supports and the bird-dog support diagonal fixed', () => {
+    const support: Record<'cat-cow' | 'bird-dog', number[]> = { 'cat-cow': [11, 14, 4, 7], 'bird-dog': [14, 4] }
+    for (const movement of ['cat-cow', 'bird-dog'] as const) {
+      const bones = createExerciseRig()
+      const opening: THREE.Vector3[] = []
+      for (let frame = 0; frame <= 40; frame++) {
+        applyExercisePose(bones, movement, frame / 40)
+        const contacts = support[movement].map(index => bones[index].getWorldPosition(new THREE.Vector3()))
+        if (!frame) opening.push(...contacts.map(point => point.clone()))
+        contacts.forEach((point, index) => expect(point.distanceTo(opening[index]), movement).toBeLessThan(.001))
+      }
+    }
+  })
   it('keeps standing soles and calf-raise toe pivots planted', () => {
     for (const exercise of EXERCISES.filter(item => item.cameraFocus !== 'floor' && !['split-squat', 'hip-flexor'].includes(item.id))) {
       const bones = createExerciseRig()

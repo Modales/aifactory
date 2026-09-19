@@ -114,7 +114,7 @@ export default function ExerciseScene({ exercise, cycle, onReady, onError }: Pro
         const chunk = atlas.chunks[0]
         const data = await decodeAnatomyChunk(await fetch(chunk.gzip!, { signal: abort.signal }), chunk.bytes, true)
         if (disposed) return
-        const groups: Record<string, THREE.BufferGeometry[]> = { skeletal: [], muscular: [] }
+        const groups: Record<string, THREE.BufferGeometry[]> = { skeletal: [], extremity: [], muscular: [] }
         atlas.parts.forEach((part, index) => {
           const geometry = new THREE.BufferGeometry()
           const positions = new Float32Array(data, part.positions, part.vertexCount * 3)
@@ -130,14 +130,16 @@ export default function ExerciseScene({ exercise, cycle, onReady, onError }: Pro
           }
           geometry.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(indices, 4))
           geometry.setAttribute('skinWeight', new THREE.Float32BufferAttribute(skinWeights, 4))
-          groups[part.system].push(geometry)
+          const isExtremity = part.system === 'skeletal' && (center[1] > 1.45 || center[1] < .18 || (center[1] < 1 && Math.abs(center[0]) > .2))
+          groups[isExtremity ? 'extremity' : part.system].push(geometry)
         })
         for (const [system, parts] of Object.entries(groups)) {
           const geometry = mergeGeometries(parts, false)
           parts.forEach(part => part.dispose())
           if (!geometry) throw new Error('The exercise model could not be assembled.')
           geometries.push(geometry)
-          const mesh = new THREE.SkinnedMesh(geometry, system === 'skeletal' ? boneMaterial : muscleMaterial)
+          if (system === 'skeletal') continue
+          const mesh = new THREE.SkinnedMesh(geometry, system === 'extremity' ? boneMaterial : muscleMaterial)
           mesh.bind(skeleton); mesh.frustumCulled = false; scene.add(mesh)
         }
         el.dataset.skin = 'none'

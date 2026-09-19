@@ -1,4 +1,3 @@
-import { useId } from 'react'
 import type { MuscleId, MuscleLoadSummary } from '@/lib/muscleModel'
 
 type Region = { id: MuscleId; d: string }
@@ -42,38 +41,23 @@ const LEGACY: Record<string, MuscleId> = { chest: 'mid_chest', front_delts: 'ant
 const COLORS = ['#d4c9bc', '#dca66b', '#d9864e', '#cd613c', '#ae3e2d', '#812d29']
 
 export default function FeedMuscleDiagram({ summary }: { summary: MuscleLoadSummary }) {
-  const uid = useId().replace(/:/g, '')
   const scores = new Map<string, number>()
   summary.entries.forEach(entry => {
     const id = LEGACY[entry.id] ?? entry.id
     scores.set(id, Math.max(scores.get(id) ?? 0, entry.score))
   })
-  return <svg viewBox="0 0 440 510" role="img" aria-label="Original front and back anatomy illustration highlighting estimated muscle demand" className="mx-auto block w-full max-w-[440px]" data-testid="feed-muscle-diagram">
-    <title>Muscle demand · front and back</title>
-    <desc>{summary.entries.filter(e => e.score > 0).map(e => `${e.name}: ${e.score} out of 100`).join('; ')}. Deep muscles are shown as schematic projections.</desc>
-    <defs>
-      <linearGradient id={`${uid}-skin`} x1="0" x2="1"><stop stopColor="#9e8c7b" /><stop offset=".42" stopColor="#e6d9c8" /><stop offset=".7" stopColor="#d0bfac" /><stop offset="1" stopColor="#a39180" /></linearGradient>
-      <radialGradient id={`${uid}-volume`} cx="38%" cy="30%" r="76%"><stop stopColor="#fff3da" stopOpacity=".48" /><stop offset=".5" stopColor="#fff3da" stopOpacity=".04" /><stop offset="1" stopColor="#38231f" stopOpacity=".5" /></radialGradient>
-      <pattern id={`${uid}-fiber`} width="6" height="9" patternUnits="userSpaceOnUse" patternTransform="rotate(-13)"><path d="M1 -2Q4 4 1 11" fill="none" stroke="#fff3dd" strokeOpacity=".2" strokeWidth=".6" /></pattern>
-    </defs>
-    <path d="M220 32V475" stroke="#b8aa99" strokeWidth=".7" strokeDasharray="2 7" />
-    {[FRONT, BACK].map((regions, view) => <g key={view} transform={`translate(${view * 220 + 10} 5)`}>
-      <ellipse cx="100" cy="467" rx="49" ry="5" fill="#483c31" opacity=".08" />
+  return <svg viewBox="0 0 420 470" role="img" aria-label="Front and back silhouettes colored by muscle demand" className="mx-auto block w-full max-w-[420px]" data-testid="feed-muscle-diagram">
+    <title>Muscle demand</title>
+    <desc>{summary.entries.filter(entry => entry.score > 0).map(entry => entry.name).join(', ')}</desc>
+    {[FRONT, BACK].map((regions, view) => <g key={view} transform={`translate(${view * 210 + 5} 0)`}>
       {[false, true].map(mirror => <g key={String(mirror)} transform={mirror ? 'translate(200 0) scale(-1 1)' : undefined}>
-        <path d={`${OUTLINE}Z`} fill={`url(#${uid}-skin)`} stroke="#8b7868" strokeWidth=".65" />
+        <path d={`${OUTLINE}Z`} fill="#d4c9bc" />
         {regions.map(region => {
           const score = scores.get(region.id) ?? 0
           const color = COLORS[score <= 0 ? 0 : Math.min(5, Math.ceil(score / 20))]
-          return <g key={region.id} data-muscle={region.id} data-score={score}>
-            <path d={region.d} fill={color} stroke="#76594b" strokeWidth=".55" strokeLinejoin="round" />
-            <path d={region.d} fill={`url(#${uid}-volume)`} />
-            <path d={region.d} fill={`url(#${uid}-fiber)`} />
-          </g>
+          return <path key={region.id} d={region.d} fill={color} data-muscle={region.id} data-score={score} />
         })}
-        <path d={view === 0 ? 'M89 81L96 94M64 139L69 151M68 328Q73 334 81 328M73 398L76 436M22 236L29 239' : 'M93 85L98 102M73 396L76 437M68 330L81 332M22 236L29 239'} fill="none" stroke="#907865" strokeWidth=".8" />
       </g>)}
-      {view === 0 ? <g fill="none" stroke="#99816d" strokeWidth=".7"><path d="M87 49L94 48M106 48L113 49M99 51L97 60 102 61M94 67Q100 70 106 67M100 148V220" /><ellipse cx="100" cy="210" rx="1.4" ry="2" fill="#967965" /></g> : <path d="M100 77V216" stroke="#aa8d75" strokeWidth="1" />}
-      <text x="100" y="493" textAnchor="middle" fill="#6e6257" fontFamily="monospace" fontSize="9" letterSpacing="3">{view === 0 ? 'ANTERIOR' : 'POSTERIOR'}</text>
     </g>)}
   </svg>
 }
