@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { EXERCISES, ROUTINES, DEMO_SECONDS, exerciseById, playbackPosition } from '../src/lib/exerciseLibrary'
 import { JOINTS, exercisePose, skinWeight } from '../src/lib/exerciseAnimation'
+import { cameraShot } from '../src/lib/exerciseCamera'
 
 describe('guided exercise demonstrations', () => {
   it('gives every routine a valid sequence and training prescription', () => {
@@ -11,6 +12,17 @@ describe('guided exercise demonstrations', () => {
         expect(step.prescription).toMatch(/reps/)
       }
     }
+  })
+  it('organizes a broad catalog into the requested training categories', () => {
+    expect(EXERCISES.length).toBeGreaterThanOrEqual(24)
+    expect(new Set(EXERCISES.map(exercise => exercise.category))).toEqual(new Set(['Strength foundations', 'Bodybuilding accessories', 'Mobility & rehab']))
+  })
+  it('cuts through distinct camera views during each repetition', () => {
+    const opening = cameraShot('upper', 0, 1.5)
+    const detail = cameraShot('upper', .4, 1.5)
+    const finish = cameraShot('upper', .75, 1.5)
+    expect(new Set([opening.label, detail.label, finish.label]).size).toBe(3)
+    expect(detail.zoom).toBeGreaterThan(opening.zoom)
   })
   it('scrubs exactly to a chapter and clamps the endpoint', () => {
     const sequence = ROUTINES[0].steps.map(s => exerciseById(s.exerciseId))

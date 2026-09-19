@@ -3,6 +3,7 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { decodeAnatomyChunk, musclePartIds, type AnatomyAtlas } from '@/lib/anatomyAtlas'
 import { JOINTS, exercisePose, skinWeight } from '@/lib/exerciseAnimation'
+import { cameraShot } from '@/lib/exerciseCamera'
 import type { LibraryExercise } from '@/lib/exerciseLibrary'
 import type { MuscleId } from '@/lib/muscleModel'
 
@@ -13,7 +14,7 @@ interface Props {
   onError: (message: string) => void
 }
 
-/** Fixed-camera, skinned BodyParts3D demonstration. Deliberately has no free-orbit controls. */
+/** Choreographed-camera, skinned BodyParts3D demonstration with equipment locked to the hand bones. */
 export default function ExerciseScene({ exercise, cycle, onReady, onError }: Props) {
   const host = useRef<HTMLDivElement>(null)
   const latest = useRef({ exercise, cycle })
@@ -73,15 +74,16 @@ export default function ExerciseScene({ exercise, cycle, onReady, onError }: Pro
       weights.userData[hand] = dumbbell
     }
     const fit = () => {
-      const prone = latest.current.exercise.id === 'pushup'
-      const aspect = camera.aspect
-      cameraTarget.set(0, prone ? .38 : .86, prone ? .1 : 0)
-      const direction = prone ? new THREE.Vector3(1, .48, .48) : new THREE.Vector3(.85, .15, 1)
-      const distance = Math.max(prone ? 2.7 : 3.25, (prone ? 2.3 : 1.8) / Math.max(.7, aspect))
-      camera.position.copy(cameraTarget).addScaledVector(direction.normalize(), distance)
+      const current = latest.current
+      const shot = cameraShot(current.exercise.cameraFocus, current.cycle, camera.aspect)
+      cameraTarget.fromArray(shot.target)
+      camera.position.fromArray(shot.position)
+      camera.zoom = shot.zoom
+      camera.updateProjectionMatrix()
       camera.lookAt(cameraTarget)
+      el.dataset.cameraShot = shot.label
     }
-    const resize = () => { camera.aspect = el.clientWidth / Math.max(1, el.clientHeight); camera.updateProjectionMatrix(); renderer.setSize(el.clientWidth, el.clientHeight); fit(); if (ready) renderer.render(scene, camera) }
+    const resize = () => { camera.aspect = el.clientWidth / Math.max(1, el.clientHeight); renderer.setSize(el.clientWidth, el.clientHeight); fit(); if (ready) renderer.render(scene, camera) }
     const observer = new ResizeObserver(resize); observer.observe(el); resize()
     void (async () => {
       try {
@@ -152,6 +154,11 @@ export default function ExerciseScene({ exercise, cycle, onReady, onError }: Pro
       const pose = exercisePose(current.exercise.id, current.cycle)
       bones[0].position.fromArray(JOINTS[0].at).add(new THREE.Vector3().fromArray(pose.offset))
       pose.rotations.forEach((rotation, i) => bones[i].rotation.set(...rotation))
+      for (const hand of [11, 14]) {
+        const dumbbell = weights.userData[hand] as THREE.Group
+        dumbbell.rotation.set(...pose.gripRotation)
+      }
+      fit()
       renderer.render(scene, camera)
       if (!notified) { notified = true; el.dataset.ready = 'true'; onReady() }
       el.dataset.movement = current.exercise.id
