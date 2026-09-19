@@ -31,7 +31,7 @@ export function exercisePose(movement: Movement, cycle: number): ExercisePose {
   const t = (1 - Math.cos(Math.PI * 2 * cycle)) / 2
   const rotations: [number, number, number][] = JOINTS.map(() => [0, 0, 0])
   const offset: [number, number, number] = [0, 0, 0]
-  let gripRotation: [number, number, number] = [0, 0, 0]
+  const gripRotation: [number, number, number] = [0, 0, 0]
   const both = (left: number, right: number, axis: 0 | 1 | 2, value: number, mirrored = false) => {
     rotations[left][axis] = value
     rotations[right][axis] = mirrored ? -value : value
@@ -56,64 +56,67 @@ export function exercisePose(movement: Movement, cycle: number): ExercisePose {
     both(9, 12, 0, -1.15 - .3 * t); both(10, 13, 0, -.12)
   } else if (movement === 'hinge' || movement === 'deadlift') {
     legs(-.38 * t, .52 * t); rotations[1][0] = .88 * t
-    if (movement === 'deadlift') both(9, 12, 0, -.12)
+    both(9, 12, 0, -.88 * t)
   } else if (movement === 'split-squat' || movement === 'hip-flexor') {
-    rotations[3][0] = -.88 * t; rotations[4][0] = 1.25 * t; rotations[5][0] = -.37 * t
-    rotations[6][0] = .5 * t; rotations[7][0] = .72 * t; rotations[8][0] = -.35 * t
-    offset[1] = -.32 * t; offset[2] = .12 * t
-    if (movement === 'hip-flexor') { rotations[1][0] = -.08 * t; both(9, 12, 0, -.45) }
+    // Start in a split stance; the kneeling stretch must never begin standing.
+    offset[1] = movement === 'hip-flexor' ? -.39 : -.14 - .24 * t
+    offset[2] = movement === 'hip-flexor' ? .025 + .045 * t : 0
+    rotations[1][0] = movement === 'hip-flexor' ? -.04 * t : .06 * t
   } else if (movement === 'glute-bridge') {
-    floorBody(Math.PI / 2, -.46); rotations[3][0] = rotations[6][0] = -1.05 + .22 * t
-    rotations[4][0] = rotations[7][0] = 1.55 - .18 * t; offset[1] += .18 * t
-    both(9, 12, 0, -1.35)
+    // Supine, not face-down: shoulders stay low while the pelvis rises.
+    floorBody(-Math.PI / 2 - .5 * t, -.795 + .27 * t)
+    offset[2] = -.02
+    rotations[2][0] = .5 * t
   } else if (movement === 'pushup') {
-    const tilt = 1.2 + .16 * t; floorBody(tilt, -.56 - .14 * t)
-    for (const arm of [9, 12]) { rotations[arm][0] = -tilt + .7 * t; rotations[arm + 1][0] = -1.5 * t; rotations[arm + 2][0] = -Math.PI / 2 + .72 * t }
+    floorBody(1.31 + .18 * t, 0)
+    rotations[5][0] = rotations[8][0] = 0
   } else if (movement === 'overhead-press') {
     both(9, 12, 2, 1.12 + .43 * t, true); both(10, 13, 0, -1.55 + 1.4 * t)
-    both(11, 14, 1, Math.PI / 2, true); gripRotation = [0, 0, Math.PI / 2]
+    both(11, 14, 1, Math.PI / 2, true)
   } else if (movement === 'bent-row') {
     legs(-.25, .34); rotations[1][0] = .78
-    both(9, 12, 0, -.15 + .7 * t); both(10, 13, 0, -1.65 * t)
+    both(9, 12, 0, -.78 + .8 * t); both(10, 13, 0, -1.65 * t)
   } else if (movement === 'curl' || movement === 'hammer-curl') {
     both(10, 13, 0, -.1 - 2.0 * t)
-    both(11, 14, 1, movement === 'hammer-curl' ? 0 : Math.PI / 2, true)
-    gripRotation = movement === 'hammer-curl' ? [0, Math.PI / 2, 0] : [0, 0, 0]
+    both(11, 14, 1, movement === 'hammer-curl' ? Math.PI / 2 : Math.PI, true)
   } else if (movement === 'raise') {
     both(9, 12, 2, 1.35 * t, true); both(10, 13, 0, -.14); both(11, 14, 1, Math.PI / 2, true)
   } else if (movement === 'front-raise') {
-    both(9, 12, 0, -1.4 * t); both(10, 13, 0, -.1); both(11, 14, 1, Math.PI / 2, true)
+    both(9, 12, 0, -1.4 * t); both(10, 13, 0, -.1)
   } else if (movement === 'reverse-fly') {
     legs(-.22, .3); rotations[1][0] = .82
-    both(9, 12, 2, 1.28 * t, true); both(10, 13, 0, -.12)
+    both(9, 12, 0, -.82); both(9, 12, 2, 1.28 * t, true); both(10, 13, 0, -.12)
   } else if (movement === 'triceps-extension') {
     both(9, 12, 0, -2.8); both(9, 12, 2, .18, true); both(10, 13, 0, -1.8 + 1.68 * t)
-    both(11, 14, 1, Math.PI / 2, true); gripRotation = [0, 0, Math.PI / 2]
+    both(11, 14, 1, Math.PI / 2, true)
   } else if (movement === 'kickback') {
     legs(-.22, .3); rotations[1][0] = .82; both(9, 12, 0, .72); both(10, 13, 0, -1.5 + 1.43 * t)
   } else if (movement === 'calf') {
-    offset[1] = .065 * t; rotations[5][0] = rotations[8][0] = -.5 * t
+    offset[1] = .065 * t; rotations[5][0] = rotations[8][0] = .5 * t
   } else if (movement === 'bird-dog') {
-    floorBody(Math.PI / 2, -.56); rotations[3][0] = -.95; rotations[4][0] = 1.35; rotations[6][0] = -.95 + 1.15 * t; rotations[7][0] = 1.35 - 1.15 * t
-    rotations[9][0] = -1.45 * t; rotations[12][0] = -.55; rotations[13][0] = -1.15
+    floorBody(Math.PI / 2, -.41)
+    both(3, 6, 0, -Math.PI / 2); both(4, 7, 0, Math.PI / 2 - .10)
+    rotations[6][0] += Math.PI / 2 * t; rotations[7][0] *= 1 - t
   } else if (movement === 'dead-bug') {
-    floorBody(-Math.PI / 2, -.42); both(3, 6, 0, -1.45); both(4, 7, 0, 1.45)
-    rotations[3][0] += .75 * t; rotations[4][0] -= .75 * t; rotations[12][0] = -1.45 + 1.25 * t
-    rotations[9][0] = -1.45; rotations[10][0] = rotations[13][0] = -.12
+    floorBody(-Math.PI / 2, -.80); both(3, 6, 0, -Math.PI / 2); both(4, 7, 0, Math.PI / 2)
+    rotations[3][0] += 1.10 * t; rotations[4][0] *= 1 - t
+    both(9, 12, 0, -Math.PI / 2); rotations[12][0] -= 1.10 * t
   } else if (movement === 'wall-slide') {
     both(9, 12, 2, .65 + .85 * t, true); both(10, 13, 0, -1.5 + 1.35 * t); both(11, 14, 1, Math.PI / 2, true)
   } else if (movement === 'thoracic-rotation') {
-    floorBody(1.4, -.48); rotations[1][1] = .85 * t; rotations[2][1] = .35 * t
-    rotations[9][0] = -1.2; rotations[12][0] = -1.2 + .6 * t; rotations[12][2] = -1.25 * t
+    // Side-lying open book, with knees stacked instead of a prone twist.
+    rotations[0][2] = Math.PI / 2; offset[1] = -.67
+    both(3, 6, 0, -.9); both(4, 7, 0, 1.5)
+    rotations[1][1] = 1.25 * t; rotations[2][1] = .25 * t
   } else if (movement === 'external-rotation') {
-    both(9, 12, 2, .18, true); both(10, 13, 0, -1.5); both(10, 13, 1, .78 * t, true)
+    both(9, 12, 2, .08, true); both(9, 12, 1, .78 * t, true); both(10, 13, 0, -1.5)
     both(11, 14, 1, Math.PI / 2, true)
   } else if (movement === 'ankle-rock') {
-    rotations[3][0] = -.18 * t; rotations[4][0] = .52 * t; rotations[5][0] = -.34 * t
-    rotations[6][0] = .1; rotations[7][0] = -.05; rotations[1][0] = .08 * t
+    legs(-.08 - .18 * t, .16 + .36 * t)
+    offset[2] += .055 * t; rotations[1][0] = .08 * t
   } else if (movement === 'cat-cow') {
-    floorBody(Math.PI / 2, -.55); both(3, 6, 0, -.95); both(4, 7, 0, 1.38)
-    both(9, 12, 0, -.55); both(10, 13, 0, -1.15); rotations[1][0] = -.3 + .6 * t; rotations[2][0] = .2 - .42 * t
+    floorBody(Math.PI / 2, -.41); both(3, 6, 0, -Math.PI / 2); both(4, 7, 0, Math.PI / 2 - .10)
+    rotations[1][0] = -.14 + .28 * t; rotations[2][0] = .2 - .42 * t
   }
   return { rotations, offset, intensity: .45 + .55 * t, gripRotation }
 }

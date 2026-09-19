@@ -2,9 +2,9 @@ import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { decodeAnatomyChunk, musclePartIds, type AnatomyAtlas } from '@/lib/anatomyAtlas'
-import { JOINTS, exercisePose, skinWeight } from '@/lib/exerciseAnimation'
+import { skinWeight } from '@/lib/exerciseAnimation'
+import { applyExercisePose, createExerciseRig } from '@/lib/exerciseKinematics'
 import { cameraShot } from '@/lib/exerciseCamera'
-import { loadExerciseSkin } from '@/lib/exerciseSkin'
 import type { LibraryExercise } from '@/lib/exerciseLibrary'
 import type { MuscleId } from '@/lib/muscleModel'
 
@@ -32,7 +32,7 @@ export default function ExerciseScene({ exercise, cycle, onReady, onError }: Pro
     renderer.outputColorSpace = THREE.SRGBColorSpace
     renderer.toneMapping = THREE.ACESFilmicToneMapping
     renderer.toneMappingExposure = .85
-    renderer.domElement.setAttribute('aria-label', 'Animated human body with skin cutaways revealing the working muscles')
+    renderer.domElement.setAttribute('aria-label', 'Animated exposed muscle anatomy with highlighted working muscles')
     el.appendChild(renderer.domElement)
     const scene = new THREE.Scene()
     const camera = new THREE.PerspectiveCamera(34, 1, .01, 30)
@@ -41,20 +41,15 @@ export default function ExerciseScene({ exercise, cycle, onReady, onError }: Pro
     const key = new THREE.DirectionalLight('#fff0da', 3.4); key.position.set(2, 4, 3); scene.add(key)
     const rim = new THREE.DirectionalLight('#b3c6c4', 2.8); rim.position.set(-3, 2, -2); scene.add(rim)
     const fill = new THREE.DirectionalLight('#f5e9d4', 1.5); fill.position.set(-2, 1, 3); scene.add(fill)
-    const grid = new THREE.GridHelper(8, 40, '#414641', '#2d322f'); grid.position.y = -.025; scene.add(grid)
+    const grid = new THREE.GridHelper(8, 40, '#414641', '#2d322f'); grid.position.y = 0; scene.add(grid)
     const circle = new THREE.Mesh(new THREE.CircleGeometry(.75, 64), new THREE.MeshBasicMaterial({ color: '#101311', transparent: true, opacity: .7, depthWrite: false }))
-    circle.rotation.x = -Math.PI / 2; circle.position.y = -.015; circle.scale.y = .62; scene.add(circle)
-    const bones = JOINTS.map(joint => { const bone = new THREE.Bone(); bone.name = joint.name; return bone })
-    JOINTS.forEach((joint, i) => {
-      bones[i].position.fromArray(joint.at)
-      if (joint.parent >= 0) { bones[i].position.sub(new THREE.Vector3().fromArray(JOINTS.at(joint.parent)!.at)); bones[joint.parent].add(bones[i]) }
-      else scene.add(bones[i])
-    })
+    circle.rotation.x = -Math.PI / 2; circle.position.y = .001; circle.scale.y = .62; scene.add(circle)
+    const bones = createExerciseRig()
+    scene.add(bones[0])
     scene.updateMatrixWorld(true)
     const skeleton = new THREE.Skeleton(bones)
     const geometries: THREE.BufferGeometry[] = [], materials: THREE.Material[] = []
     let texture: THREE.DataTexture | undefined, atlas: AnatomyAtlas | undefined, stateData: Uint8Array<ArrayBuffer> | undefined
-    let skin: Awaited<ReturnType<typeof loadExerciseSkin>> | undefined
     const boneMaterial = new THREE.MeshStandardMaterial({ color: '#d9d8cc', roughness: .62, metalness: .04 })
     const muscleMaterial = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: .65, side: THREE.DoubleSide })
     materials.push(boneMaterial, muscleMaterial)
@@ -70,7 +65,7 @@ export default function ExerciseScene({ exercise, cycle, onReady, onError }: Pro
         const plateGeometry = new THREE.CylinderGeometry(.053, .053, .04, 12); geometries.push(plateGeometry)
         const plate = new THREE.Mesh(plateGeometry, dumbbellMaterial); plate.rotation.z = Math.PI / 2; plate.position.x = side * .09; dumbbell.add(plate)
       }
-      dumbbell.position.y = -.065
+      dumbbell.position.set(hand === 11 ? .015 : -.015, -.065, .025)
       bones[hand].add(dumbbell)
       // Group is only a visibility registry; the dumbbells stay attached to the hands.
       weights.userData[hand] = dumbbell
@@ -143,14 +138,9 @@ export default function ExerciseScene({ exercise, cycle, onReady, onError }: Pro
           if (!geometry) throw new Error('The exercise model could not be assembled.')
           geometries.push(geometry)
           const mesh = new THREE.SkinnedMesh(geometry, system === 'skeletal' ? boneMaterial : muscleMaterial)
-          // Keep the simplified internal rig out of the rendered muscle silhouette.
-          mesh.visible = system !== 'skeletal'
           mesh.bind(skeleton); mesh.frustumCulled = false; scene.add(mesh)
         }
-        skin = await loadExerciseSkin(skeleton, abort.signal, geometries)
-        if (disposed) { skin.geometry.dispose(); skin.material.dispose(); return }
-        geometries.push(skin.geometry); materials.push(skin.material); scene.add(skin.mesh)
-        el.dataset.skin = 'cutaway'
+        el.dataset.skin = 'none'
         ready = true
         renderFrame(performance.now())
       } catch (error) { if (!disposed) onError(error instanceof Error ? error.message : 'Unable to load the exercise model.') }
@@ -167,13 +157,10 @@ export default function ExerciseScene({ exercise, cycle, onReady, onError }: Pro
           atlas.parts.forEach((part, index) => { if (ids.has(part.id)) stateData![index * 4] = Math.round(demand * 2.55) })
         }
         texture.needsUpdate = true
-        skin?.update(atlas, stateData)
         for (const hand of [11, 14]) (weights.userData[hand] as THREE.Group).visible = current.exercise.equipment === 'Dumbbells'
         previous = current.exercise.id
       }
-      const pose = exercisePose(current.exercise.id, current.cycle)
-      bones[0].position.fromArray(JOINTS[0].at).add(new THREE.Vector3().fromArray(pose.offset))
-      pose.rotations.forEach((rotation, i) => bones[i].rotation.set(...rotation))
+      const pose = applyExercisePose(bones, current.exercise.id, current.cycle)
       for (const hand of [11, 14]) {
         const dumbbell = weights.userData[hand] as THREE.Group
         dumbbell.rotation.set(...pose.gripRotation)
@@ -182,7 +169,7 @@ export default function ExerciseScene({ exercise, cycle, onReady, onError }: Pro
       renderer.render(scene, camera)
       if (!notified) { notified = true; el.dataset.ready = 'true'; onReady() }
       el.dataset.movement = current.exercise.id
-      el.dataset.pose = pose.rotations.map(r => r.map(v => v.toFixed(3)).join(',')).join('|')
+      el.dataset.pose = bones.map(bone => [bone.rotation.x, bone.rotation.y, bone.rotation.z].map(v => v.toFixed(3)).join(',')).join('|')
       el.dataset.cycle = current.cycle.toFixed(3)
     }
     const animate = (now: number) => {
