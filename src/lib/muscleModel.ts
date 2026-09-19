@@ -16,7 +16,7 @@ export interface MuscleLoadEntry {
 }
 
 export interface MuscleLoadSummary {
-  modelVersion: '1.0'
+  modelVersion: '1.0' | '2.0'
   source: 'biomechanical-estimate'
   confidence: 'moderate' | 'low'
   entries: MuscleLoadEntry[]
@@ -90,6 +90,17 @@ export function aggregateMuscleLoad(summaries: MuscleLoadSummary[]): MuscleLoadS
     confidence: summaries.length && summaries.every((summary) => summary.confidence === 'moderate') ? 'moderate' : 'low',
     entries: [...totals.entries()].map(([id, total]) => ({ id, name: NAMES[id], score: Math.round(clamp((total / peak) * 100)), role: total / peak >= 0.7 ? 'primary' as const : 'secondary' as const })).sort((a, b) => b.score - a.score),
     disclaimer: 'Relative workout-wide anatomical demand, normalized across the logged sets. It is not direct EMG, force, or medical assessment.',
+  }
+}
+
+export function muscleLoadFromDemand(demand: Record<string, number>): MuscleLoadSummary {
+  const entries = Object.entries(demand)
+    .filter(([id]) => id in NAMES)
+    .map(([id, score]) => ({ id: id as MuscleId, name: NAMES[id as MuscleId], score: Math.round(clamp(score)), role: score >= 70 ? 'primary' as const : 'secondary' as const }))
+    .sort((a, b) => b.score - a.score)
+  return {
+    modelVersion: '2.0', source: 'biomechanical-estimate', confidence: 'moderate', entries,
+    disclaimer: 'Estimated relative training demand from the confirmed exercise and observed movement—not direct EMG, muscle force, or a medical measurement.',
   }
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
 import {
   ArrowRight,
@@ -12,11 +12,13 @@ import {
   Sparkles,
   Trophy,
   Users,
+  Rotate3D,
 } from 'lucide-react'
 import WorkspaceHeader from '@/components/WorkspaceHeader'
 import OnboardingWizard from '@/components/OnboardingWizard'
 import WorkoutVolumeTrend from '@/components/WorkoutVolumeTrend'
 import MuscleHeatmap from '@/components/MuscleHeatmap'
+const MuscleAnalysis3D = lazy(() => import('@/components/anatomy/MuscleAnalysis3D'))
 import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
 import type { HistoryItem, HistoryStats, SocialActivity, SocialChallenge, SocialClub } from '@/lib/api'
@@ -45,7 +47,7 @@ function Stat({ label, value, accent = false }: { label: string; value: string; 
   )
 }
 
-function FeedCard({ item, onReact }: { item: SocialActivity; onReact: (id: string) => void }) {
+function FeedCard({ item, onReact, onAnatomy }: { item: SocialActivity; onReact: (id: string) => void; onAnatomy: (item: SocialActivity) => void }) {
   return (
     <article className="border-2 border-foreground bg-card">
       <div className="flex items-start justify-between border-b border-foreground/20 p-4">
@@ -75,6 +77,7 @@ function FeedCard({ item, onReact }: { item: SocialActivity; onReact: (id: strin
             {item.workout.muscleLoad.entries.length > 0 && (
               <div className="col-span-2">
                 <MuscleHeatmap summary={item.workout.muscleLoad} compact />
+                <button type="button" onClick={() => onAnatomy(item)} className="mt-2 flex w-full items-center justify-center gap-2 border-2 border-foreground bg-foreground px-3 py-2 mono-data text-[9px] font-bold tracking-[0.14em] text-background"><Rotate3D className="h-4 w-4 text-primary" />EXPLORE IN 3D</button>
               </div>
             )}
           </div>
@@ -104,6 +107,7 @@ export default function Terminal() {
   const [loading, setLoading] = useState(true)
   const [needsOnboarding, setNeedsOnboarding] = useState(() => !getStoredOnboarding().completed)
   const [showOnboarding, setShowOnboarding] = useState(false)
+  const [anatomyActivity, setAnatomyActivity] = useState<SocialActivity | null>(null)
 
   useEffect(() => {
     if (status === 'anonymous') navigate('/login', { replace: true, state: { from: '/dashboard' } })
@@ -162,7 +166,7 @@ export default function Terminal() {
 
           <div id="social" className="mt-8 flex scroll-mt-20 items-center justify-between border-b-2 border-foreground pb-3"><div className="flex items-center gap-2"><Users className="h-4 w-4 text-primary" /><h2 className="text-lg font-black uppercase">Social / crew feed</h2></div><span className="mono-data text-[9px] tracking-[0.16em] text-muted-foreground">FOLLOWED ATHLETES + PUBLIC</span></div>
           <div className="mt-4 space-y-4">
-            {loading ? <div className="flex justify-center py-14"><Loader2 className="h-6 w-6 animate-spin" /></div> : feed.length > 0 ? feed.map((item) => <FeedCard key={item.id} item={item} onReact={react} />) : <div className="border-2 border-dashed border-foreground p-8 text-center"><Users className="mx-auto h-6 w-6 text-primary" /><p className="mt-3 font-bold uppercase">Your crew feed is ready</p><p className="mx-auto mt-2 max-w-sm text-sm text-muted-foreground">Follow athletes or share your finished sets to start the conversation.</p><Link to="/session" className="mt-5 inline-block"><Button variant="outline" className="border-2 border-foreground font-bold">LOG A SET</Button></Link></div>}
+            {loading ? <div className="flex justify-center py-14"><Loader2 className="h-6 w-6 animate-spin" /></div> : feed.length > 0 ? feed.map((item) => <FeedCard key={item.id} item={item} onReact={react} onAnatomy={setAnatomyActivity} />) : <div className="border-2 border-dashed border-foreground p-8 text-center"><Users className="mx-auto h-6 w-6 text-primary" /><p className="mt-3 font-bold uppercase">Your crew feed is ready</p><p className="mx-auto mt-2 max-w-sm text-sm text-muted-foreground">Follow athletes or share your finished sets to start the conversation.</p><Link to="/session" className="mt-5 inline-block"><Button variant="outline" className="border-2 border-foreground font-bold">LOG A SET</Button></Link></div>}
           </div>
         </main>
 
@@ -172,6 +176,8 @@ export default function Terminal() {
           <Link to="/history" className="mt-8 flex items-center justify-between border-2 border-foreground bg-foreground p-4 text-background transition-transform hover:-translate-y-0.5"><div><p className="mono-data text-[9px] tracking-[0.18em] text-primary">PERSONAL RECORD</p><p className="mt-1 text-sm font-bold">Review your training log</p></div><ArrowRight className="h-4 w-4" /></Link>
         </aside>
       </div>
+
+      {anatomyActivity?.workout && <Suspense fallback={null}><MuscleAnalysis3D summary={anatomyActivity.workout.muscleLoad} title={`${anatomyActivity.workout.exerciseName} muscle story`} onClose={() => setAnatomyActivity(null)} /></Suspense>}
 
       <OnboardingWizard
         isOpen={showOnboarding}
