@@ -59,5 +59,6 @@ export default function FeedMuscleDiagram({ summary }: { summary: MuscleLoadSumm
         })}
       </g>)}
     </g>)}
+    {['ANTERIOR', 'POSTERIOR'].map((label, view) => <text key={label} x={view * 210 + 105} y={466} textAnchor="middle" fill="#8a827a" fontSize="10" letterSpacing="2">{label}</text>)}
   </svg>
 }
