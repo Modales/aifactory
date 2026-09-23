@@ -142,17 +142,22 @@ class LlmDetector:
         return None
 
     def complete(self, summary, library):
-        from openai import OpenAI
+        from openai import APIStatusError, OpenAI
         client = OpenAI(api_key=self.api_key, base_url=self.base_url, timeout=self.timeout,
                         default_headers={'HTTP-Referer': 'https://base44.com', 'X-Title': 'FormFit AI'})
         catalog = '\n'.join(f"{s['id']}: {s['name']}" + (f" (variant of {s['variantOf']})" if s['variantOf'] else '') + (' [athlete-taught]' if s['custom'] else '')
                             for s in library.values())
         user = (f"MOVEMENT\n{summary}\n\nLIBRARY\n{catalog}\n\nFAMILIES: {', '.join(FAMILIES)}\nMUSCLES: {', '.join(MUSCLE_IDS)}")
+        request = {'model': self.model, 'max_tokens': 300, 'temperature': 0,
+                   'messages': [{'role': 'system', 'content': SYSTEM}, {'role': 'user', 'content': user}]}
         try:
-            completion = client.chat.completions.create(
-                model=self.model, max_tokens=300, temperature=0,
-                messages=[{'role': 'system', 'content': SYSTEM}, {'role': 'user', 'content': user}],
-                response_format={'type': 'json_object'})
+            try:
+                completion = client.chat.completions.create(**request, response_format={'type': 'json_object'})
+            except APIStatusError as error:
+                if error.status_code != 400:
+                    raise
+                # Some models reject response_format; the prompt still demands a JSON object.
+                completion = client.chat.completions.create(**request)
         finally:
             client.close()
         return parse(completion.choices[0].message.content or '{}')

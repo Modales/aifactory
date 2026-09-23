@@ -4,8 +4,8 @@ No LLM decides scores. Missing landmarks, ambiguous views and incomplete reps ab
 Every exercise — built-in or taught by the athlete — is a spec from ``library.py``:
 the classifier scores how well the observed motion statistics fit each spec's signature,
 the segmenter counts extended→flexed→extended (or the reverse) cycles of the spec's primary
-joint, and each rep is graded 0–100 on the spec's templated checks with cues that quote the
-measured angle. Multiple views contribute independent checks on an aligned timeline; this is
+joint — failing over to the opposite-side joint when the dominant side is occluded — and each
+rep is graded 0–100 on the spec's templated checks with cues that quote the measured angle. Multiple views contribute independent checks on an aligned timeline; this is
 NOT uncalibrated 3D triangulation.
 """
 from statistics import median
@@ -117,8 +117,12 @@ def segments(rows, key='knee', rest=150, work=125, cycle='flex', min_seconds=.7)
 
 MIN_RANGE = 20          # degrees the primary joint must travel before any rep can count
 MIN_COVERAGE = .5       # share of frames the primary joint must be visible in to drive counting
-# When the primary joint is hidden or foreshortened, a body-position signal that rises and falls
-# with every rep of that joint's movement can still count reps (never grade them).
+# When the dominant-side joint is hidden or foreshortened, the same joint on the opposite side
+# is tried next: it is a real joint angle, so reps counted from it can still be graded (the
+# spec's standards are symmetric). Only when both sides are unusable does counting fall back to
+# a body-position proxy, which rises and falls with every rep but can never be graded.
+OTHER_SIDE = {'knee': 'otherKnee', 'hip': 'otherHip', 'elbow': 'otherElbow',
+              'shoulder': 'otherShoulder', 'ankle': 'otherAnkle'}
 PROXIES = {'elbow': ('wristY', .25, 'the height of the shoulders above the hands'),
            'shoulder': ('wristY', .3, 'the height of the hands relative to the shoulders'),
            'knee': ('hipAnkle', .3, 'the height of the hips above the feet'),
@@ -157,15 +161,19 @@ def adaptive_gates(rows, key, cycle, rest, work, min_range):
 
 
 def count_reps(spec, camera):
-    """Segment reps on the spec's primary joint, or on a proxy signal when that joint is unusable.
+    """Segment reps on the spec's primary joint, its opposite-side twin, or a proxy signal.
 
-    Returns (segments, signal) — ``signal`` is the spec's primary joint or the proxy key used.
+    Returns (segments, signal) — ``signal`` is the key that drove counting: the spec's primary
+    joint, the opposite-side joint (gradeable, symmetric standards), or a coarse proxy (counts
+    only, never graded).
     """
     rows, key = camera['rows'], spec['primary']
-    if coverage(rows, key) >= MIN_COVERAGE:
-        gates = adaptive_gates(rows, key, spec['cycle'], spec['rest'], spec['work'], MIN_RANGE)
+    for candidate in (key, OTHER_SIDE.get(key)):
+        if candidate is None or coverage(rows, candidate) < MIN_COVERAGE:
+            continue
+        gates = adaptive_gates(rows, candidate, spec['cycle'], spec['rest'], spec['work'], MIN_RANGE)
         if gates:
-            return segments(rows, key, gates[0], gates[1], spec['cycle'], spec['minSeconds']), key
+            return segments(rows, candidate, gates[0], gates[1], spec['cycle'], spec['minSeconds']), candidate
     proxy = PROXIES.get(key)
     if not proxy:
         return [], key
@@ -178,6 +186,17 @@ def count_reps(spec, camera):
     rest = hi - .25 * span if cycle == 'flex' else lo + .25 * span
     work = lo + .4 * span if cycle == 'flex' else hi - .4 * span
     return segments(rows, proxy_key, rest, work, cycle, spec['minSeconds']), proxy_key
+
+
+def side_swapped(camera, key, other):
+    """A copy of one camera whose rows read the opposite-side joint as the primary one.
+
+    Grading keys (``_primary`` → ``spec['primary']``) then resolve to the visible joint, so a
+    set counted on the opposite side is graded by exactly the same checks. Symmetric signals
+    (kneeAsym, hipAsym) are unchanged; unrelated checks are untouched.
+    """
+    rows = [{**r, key: r.get(other), other: r.get(key)} for r in camera['rows']]
+    return {**camera, 'rows': rows}
 
 
 # ─── Per-rep grading ───────────────────────────────────────────────────────────────────────────
@@ -356,13 +375,23 @@ def analyze(payload: AnalysisRequest, library=None, detector=None, coach=None):
             warnings.append(f"Camera angle was estimated as {best['view']}; scoring as a {spec['views'][0]} view because you confirmed {spec['name'].lower()}. Angles may be foreshortened — a true {spec['views'][0]} view is more accurate.")
         if usable:
             primary = max(usable, key=lambda c: coverage(c['rows'], spec['primary']))
-            found, signal = count_reps(spec, primary)
-            reps = [dict(index=i + 1, **evaluate_rep(spec, start, end, cameras)) for i, (start, end) in enumerate(found)]
             seen = coverage(primary['rows'], spec['primary'])
+            found, signal = count_reps(spec, primary)
+            graded_cameras = cameras
+            if found and signal == OTHER_SIDE.get(spec['primary']):
+                # The dominant side was unusable but the opposite side drove counting; grade that
+                # side through the same checks by presenting its joint as the primary one. The
+                # returned camera views still report the rows as actually observed.
+                swapped = side_swapped(primary, spec['primary'], signal)
+                graded_cameras = [swapped if c is primary else c for c in cameras]
+            reps = [dict(index=i + 1, **evaluate_rep(spec, start, end, graded_cameras)) for i, (start, end) in enumerate(found)]
             if seen < MIN_COVERAGE:
                 warnings.append(f"Your {spec['primary']} was visible in only {round(seen * 100)}% of frames. Move the camera so your {JOINT_HINTS.get(spec['primary'], spec['primary'])} stay in frame for the whole rep.")
             if signal != spec['primary'] and found:
-                warnings.append(f"Reps were counted from {PROXIES[spec['primary']][2]} because the {spec['primary']} was not measurable; form checks need the {spec['primary']} in view.")
+                if signal == OTHER_SIDE.get(spec['primary']):
+                    warnings.append(f"Reps were counted and graded from your opposite-side {spec['primary']} because the {spec['primary']} signal was not measurable. The same standards apply to both sides; side-to-side differences are not assessed.")
+                else:
+                    warnings.append(f"Reps were counted from {PROXIES[spec['primary']][2]} because the {spec['primary']} was not measurable; form checks need the {spec['primary']} in view.")
         else:
             needed = ' or '.join(spec['views'])
             warnings.append(f"A clear {needed} view is required to count and score {spec['name'].lower()} repetitions." + (' Frontal views add knee-tracking checks.' if 'side' in spec['views'] else ''))

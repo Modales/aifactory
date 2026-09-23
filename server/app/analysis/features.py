@@ -39,7 +39,7 @@ def frame_features(p, side, ratio):
 
     s, e, w, h, k, a, f = (i+side for i in (11, 13, 15, 23, 25, 27, 31))
     o = 1 - side
-    os_, oe, ow, oh, ok, oa = (i+o for i in (11, 13, 15, 23, 25, 27))
+    os_, oe, ow, oh, ok, oa, of_ = (i+o for i in (11, 13, 15, 23, 25, 27, 31))
     shoulder, hip = point(s), point(h)
     torso = max(hypot(shoulder[0]-hip[0], shoulder[1]-hip[1]), .01)
     torso_seen = seen(s, h)
@@ -52,6 +52,8 @@ def frame_features(p, side, ratio):
         'shoulder': joint(e, s, h),               # arm hanging ≈ 15°, forward/horizontal ≈ 90°, overhead ≈ 170°
         'ankle': joint(k, a, f),                  # plantar-flexion opens this angle
         'otherKnee': other_knee, 'otherElbow': other_elbow, 'otherHip': joint(os_, oh, ok),
+        # Opposite-side angles let rep counting fail over when the dominant side is occluded.
+        'otherShoulder': joint(oe, os_, oh), 'otherAnkle': joint(ok, oa, of_),
         'kneeAsym': abs(knee-other_knee) if knee is not None and other_knee is not None else None,
         'trunk': degrees(acos(min(1, abs(shoulder[1]-hip[1])/torso))) if torso_seen else None,   # 0 upright, 90 horizontal
         'wristY': norm(shoulder[1]-point(w)[1]) if seen(s, w) else None,                        # + wrist above shoulder

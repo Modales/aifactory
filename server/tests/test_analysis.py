@@ -414,3 +414,71 @@ def test_coach_notes_are_attached_and_optional():
     result=analyze(payload(confirmedExercise='squat'),coach=coach)
     assert result['coach']['cues'] and calls==['Squat']
     assert 'coverage' in result['views'][0] and analyze(payload(confirmedExercise='squat'))['coach'] is None
+
+
+# ─── Opposite-side failover ──────────────────────────────────────────────────────────────────
+def test_count_reps_fails_over_to_the_opposite_side_joint():
+    from app.analysis.engine import count_reps
+    # The camera-side knee never reads, but the other knee swings through three full squats.
+    rows=_rep_rows(60,3,knee=None,otherKnee=(170,90),hip=170,trunk=10,hipAnkle=2.0,wristY=-.95)
+    found,signal=count_reps(LIBRARY['squat'],{'id':'c','view':'side','rows':rows})
+    assert len(found)==3 and signal=='otherKnee'
+
+
+def test_confirmed_squat_is_graded_from_the_opposite_side_when_dominant_side_occluded():
+    s=squat_stream()
+    for f in s['frames']:
+        for i in (23,25,27): f['landmarks'][i]['visibility']=.1    # camera-side hip/knee/ankle lost
+        for i in (12,14,16): f['landmarks'][i]['visibility']=.1    # far-side arm lost (keeps side 0 dominant)
+    result=analyze(payload(streams=[s],confirmedExercise='squat'))
+    assert result['repCount']==2 and result['score']==100
+    assert [c['name'] for c in result['reps'][0]['checks']]==['Squat depth','Stand-up lockout','Tempo']
+    assert any('opposite-side knee' in w for w in result['warnings'])
+    assert any('visible in only 0%' in w for w in result['warnings'])
+    assert not any('form checks need' in w for w in result['warnings'])
+    # Reported visibility still describes what the camera actually saw, not the swapped copy.
+    assert result['views'][0]['coverage']['knee']==0
+
+
+def test_proxy_is_only_used_when_both_sides_are_hidden():
+    from app.analysis.engine import count_reps
+    rows=_rep_rows(60,3,elbow=None,otherElbow=None,trunk=80,hip=170,knee=175,wristY=(-1,-.35),hipAnkle=.2)
+    found,signal=count_reps(LIBRARY['pushup'],{'id':'c','view':'side','rows':rows})
+    assert len(found)==3 and signal=='wristY'
+
+
+# ─── response_format fallback ────────────────────────────────────────────────────────────────
+def _fake_openai(monkeypatch, reply):
+    """openai.OpenAI whose first create() rejects response_format with a 400, then succeeds."""
+    import httpx
+    import openai
+    from types import SimpleNamespace
+    calls=[]
+    class Completions:
+        def create(self,**kwargs):
+            calls.append('response_format' in kwargs)
+            if 'response_format' in kwargs:
+                raise openai.APIStatusError('response_format unsupported',
+                                            response=httpx.Response(400,request=httpx.Request('POST','http://test')),body=None)
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=reply))])
+    class Client:
+        def __init__(self,**kwargs): self.chat=SimpleNamespace(completions=Completions())
+        def close(self): pass
+    monkeypatch.setattr(openai,'OpenAI',Client)
+    return calls
+
+
+def test_llm_detector_retries_without_response_format_on_400(monkeypatch):
+    from app.analysis.llm_detect import LlmDetector
+    calls=_fake_openai(monkeypatch,'{"exerciseId":"squat","confidence":0.9,"reason":"knee travel"}')
+    result=LlmDetector('key','http://x','m').complete('summary',LIBRARY)
+    assert result['exerciseId']=='squat' and result['confidence']==.9
+    assert calls==[True,False]
+
+
+def test_llm_coach_retries_without_response_format_on_400(monkeypatch):
+    from app.analysis.llm_coach import LlmCoach
+    calls=_fake_openai(monkeypatch,'{"cues":["Sit deeper — the knee stayed above 100°."],"camera":""}')
+    result=LlmCoach('key','http://x','m').complete('Squat','summary',[])
+    assert result['cues']==['Sit deeper — the knee stayed above 100°.']
+    assert calls==[True,False]
