@@ -679,3 +679,20 @@ async def test_calibration_recording_needs_consent_and_declining_erases(auth_cli
     assert (await auth_client.get('/api/analysis/calibration/consent')).json()['recordings']==1
     declined=await auth_client.put('/api/analysis/calibration/consent',json={'accepted':False})
     assert declined.json()=={'termsVersion':declined.json()['termsVersion'],'decided':True,'accepted':False,'recordings':0}
+
+
+def test_single_frame_tops_at_low_fps_still_close_reps():
+    # ~7 fps push-ups: each lockout is visible for one frame, which a 3-frame median alone erases.
+    elbow=[165,165,110,78,75,110,150,170,130,88,71,101,124,166,141,108,66,83,124,147,162,160]
+    rows=[{'t':i*140,'elbow':v} for i,v in enumerate(elbow)]
+    assert len(segments(rows,'elbow',142,115,'flex',.3))==3
+    spike=[{'t':i*140,'elbow':v} for i,v in enumerate([165,165,90,75,170,75,80,90])]
+    assert segments(spike,'elbow',142,115,'flex',.3)==[]   # a lone flicker at the bottom is not a lockout
+
+
+def test_getting_into_position_is_trimmed_before_classifying():
+    from app.analysis.engine import active_window
+    setup=[{'t':i*140,'knee':v,'elbow':170} for i,v in enumerate([30,60,100,140,170,170])]
+    reps=[{'t':(6+i)*140,'knee':172,'elbow':v} for i,v in enumerate([170]*6+[170,120,80,75,120,165,170]*3)]   # brief plank hold, then reps
+    window=active_window([{'rows':setup+reps}])[0]['rows']
+    assert min(r['knee'] for r in window)==172   # the kneel-down no longer reads as knee movement

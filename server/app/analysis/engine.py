@@ -133,8 +133,11 @@ def segments(rows, key='knee', rest=150, work=125, cycle='flex', min_seconds=.7)
             start, low, window = None, False, []
         last_t = row['t']
         window = (window + [value])[-3:]
-        value = median(window)
-        at_rest, in_work = sign * value >= sign * rest, sign * value < sign * work
+        # The median rejects flicker, but at ~8 fps a fast rep tops out for a single frame and the
+        # median erases it; the 3-frame mean keeps it (a lone flicker spike still can't reach the gate).
+        smooth, mean = median(window), sum(window) / len(window)
+        in_work = sign * smooth < sign * work
+        at_rest = sign * smooth >= sign * rest or sign * mean >= sign * rest
         if start is None:
             if at_rest:
                 start = row['t']
@@ -257,6 +260,30 @@ def full_cycle(cameras):
             if gates and segments(camera['rows'], key, *gates, .3):
                 return True
     return False
+
+
+ACTIVE_PAD_MS = 600
+
+
+def active_window(cameras):
+    """Trim to the span where reps actually repeat, so getting into position doesn't count as the exercise.
+
+    Kneeling down into a plank or standing up after the set swings joints the exercise keeps
+    still (a push-up's knees), which wrecked every signature. The joint with the most self-gated
+    cycles marks the working span; with fewer than two cycles there is nothing to trim against.
+    """
+    keys = ('knee', 'hip', 'elbow', 'shoulder', 'ankle', 'trunk') + tuple(OTHER_SIDE.values())
+    best = []
+    for camera in cameras:
+        for key in keys:
+            gates = self_gates(camera['rows'], key, MIN_RANGE)
+            reps = segments(camera['rows'], key, *gates, .3) if gates else []
+            if len(reps) > len(best):
+                best = reps
+    if len(best) < 2:
+        return cameras
+    lo, hi = best[0][0] - ACTIVE_PAD_MS, best[-1][1] + ACTIVE_PAD_MS
+    return [{**c, 'rows': [r for r in c['rows'] if lo <= r['t'] <= hi]} for c in cameras]
 
 
 def side_swapped(camera, key, other):
@@ -451,7 +478,8 @@ def analyze(payload: AnalysisRequest, library=None, detector=None, coach=None):
 
     if payload.confirmedExercise and payload.confirmedExercise not in library:
         raise ValueError('Unknown exercise. Pick one from the library or teach it first.')
-    detection = classify(cameras, library)
+    active = active_window(cameras)
+    detection = classify(active, library)
     candidate, confidence = detection['exercise'], detection['confidence']
     proposal, note, source = None, None, 'detected'
     if payload.confirmedExercise:
@@ -459,7 +487,7 @@ def analyze(payload: AnalysisRequest, library=None, detector=None, coach=None):
     else:
         exercise = None
         if full_cycle(cameras):
-            exercise, resolved_confidence, library, proposal, note = resolve(cameras, detection, library, detector, payload.sessionKey)
+            exercise, resolved_confidence, library, proposal, note = resolve(active, detection, library, detector, payload.sessionKey)
             if note is not None:
                 confidence, source = resolved_confidence, 'llm'
         exercise, confidence, source, note = hold(payload.sessionKey, exercise, confidence, source, note)
