@@ -3,9 +3,8 @@ from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import text
 
-from .coach import CoachGenerator, OpenRouterCoach
+from .coach import AimlCoach, CoachGenerator
 from .config import load_settings
 from .database import Base, make_engine_and_session_factory
 from .routes.auth import router as auth_router
@@ -28,23 +27,14 @@ def create_app(
     async def lifespan(app: FastAPI):
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-            if conn.dialect.name == "postgresql":
-                await conn.execute(text(
-                    "ALTER TABLE workout_sessions "
-                    "ADD COLUMN IF NOT EXISTS muscle_load JSON NOT NULL DEFAULT '{}'"
-                ))
-                await conn.execute(text(
-                    "ALTER TABLE workout_sessions "
-                    "ADD COLUMN IF NOT EXISTS workout_id VARCHAR"
-                ))
         yield
 
     app = FastAPI(title="aifactory-server", lifespan=lifespan)
     app.state.settings = settings
     app.state.engine = engine
     app.state.session_factory = session_factory
-    app.state.coach_generator = coach_generator or OpenRouterCoach(
-        settings.openrouter_api_key, settings.openrouter_base_url, settings.coach_model
+    app.state.coach_generator = coach_generator or AimlCoach(
+        settings.aiml_api_key, settings.aiml_base_url, settings.coach_model
     )
 
     app.add_middleware(

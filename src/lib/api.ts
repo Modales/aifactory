@@ -1,5 +1,4 @@
 import type { RepData } from './simulation'
-import type { MuscleLoadSummary } from './muscleModel'
 
 export const API_BASE_URL =
   (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://127.0.0.1:4000'
@@ -22,7 +21,6 @@ export interface AuthToken {
 
 export interface HistoryItem {
   id: string
-  workoutId: string | null
   exerciseId: string
   exerciseName: string
   cameraAngle: string
@@ -30,7 +28,6 @@ export interface HistoryItem {
   totalReps: number
   avgFormScore: number
   peakEffort: number
-  muscleLoad: MuscleLoadSummary
   createdAt: string
 }
 
@@ -71,7 +68,7 @@ export interface SocialActivity {
   author: SocialAuthor
   caption: string
   visibility: 'public' | 'followers'
-  workout: { exerciseId: string; exerciseName: string; totalReps: number; durationSeconds: number; avgFormScore: number; muscleLoad: MuscleLoadSummary } | null
+  workout: { exerciseName: string; totalReps: number; durationSeconds: number; avgFormScore: number } | null
   reactionCount: number
   commentCount: number
   reactedByMe: boolean
@@ -124,13 +121,11 @@ export interface TelemetryLog {
   exerciseId: string
   exerciseName: string
   recordedAt: string
-  muscleLoad: MuscleLoadSummary
   reps: RepData[]
   flawCounts: Record<string, number>
 }
 
 export interface SessionPayload {
-  workoutId?: string
   exerciseId: string
   exerciseName: string
   cameraAngle: string
@@ -138,7 +133,6 @@ export interface SessionPayload {
   totalReps: number
   avgFormScore: number
   peakEffort: number
-  muscleLoad: MuscleLoadSummary
   reps: RepData[]
 }
 
@@ -256,13 +250,7 @@ export const api = {
 
   summaryJob: (jobId: string) =>
     request<CoachSummary>(`/api/workout/generate-summary/${jobId}`),
-  socialFeed: (params: { limit?: number; offset?: number } = {}) => {
-    const query = new URLSearchParams()
-    if (params.limit !== undefined) query.set('limit', String(params.limit))
-    if (params.offset !== undefined) query.set('offset', String(params.offset))
-    const suffix = query.toString() ? `?${query}` : ''
-    return request<SocialFeed>(`/api/social/feed${suffix}`)
-  },
+  socialFeed: () => request<SocialFeed>('/api/social/feed'),
   clubs: () => request<SocialClub[]>('/api/social/clubs'),
   challenges: () => request<SocialChallenge[]>('/api/social/challenges'),
   reactToActivity: (activityId: string) =>

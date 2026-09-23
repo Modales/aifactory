@@ -71,8 +71,8 @@ export function useRepAnalysis({
   }, [onRep, onSample])
 
   useEffect(() => {
-    const signature = active && sample
-      ? `${lifecycleKey}:${sample.timelineRevision}:${exercise?.id ?? 'detect-only'}`
+    const signature = active && exercise && sample
+      ? `${lifecycleKey}:${sample.timelineRevision}:${exercise.id}`
       : null
     if (signatureRef.current !== signature) {
       signatureRef.current = signature
@@ -87,7 +87,7 @@ export function useRepAnalysis({
     }
 
     const detector = detectorRef.current
-    if (!sample || !videoSize?.height || lastSequenceRef.current === sample.sequence) return
+    if (!detector || !sample || !videoSize?.height || lastSequenceRef.current === sample.sequence) return
     if (sample.lifecycleKey !== lifecycleKey) return
     lastSequenceRef.current = sample.sequence
 
@@ -95,29 +95,28 @@ export function useRepAnalysis({
     if (!pose) return
     const aspectRatio = videoSize.width / videoSize.height
     const nextClassification = classifierRef.current.classify(pose.landmarks, aspectRatio)
-    const completedRep = detector
-      ? detector.push({ ...sample.frame, timestampMs: sample.mediaTimeMs }, aspectRatio)
-      : null
-    const snapshot = detector?.snapshot
+    const completedRep = detector.push(
+      { ...sample.frame, timestampMs: sample.mediaTimeMs },
+      aspectRatio,
+    )
+    const snapshot = detector.snapshot
     if (completedRep) onRepRef.current(completedRep)
     onSampleRef.current?.({
       sample,
       classification: nextClassification,
-      phase: snapshot?.phase ?? 'IDLE',
-      repCount: snapshot?.reps.length ?? 0,
+      phase: snapshot.phase,
+      repCount: snapshot.reps.length,
       completedRep,
     })
 
-    const calibrated = snapshot?.isCalibrated ?? false
-    const nextPhase = snapshot?.phase ?? 'IDLE'
-    const nextRepCount = snapshot?.reps.length ?? 0
+    const calibrated = snapshot.isCalibrated
 
     if (calibrated !== calibratedRef.current) {
       calibratedRef.current = calibrated
       setIsCalibrated(calibrated)
     }
-    setPhase((current) => current === nextPhase ? current : nextPhase)
-    setRepCount((current) => current === nextRepCount ? current : nextRepCount)
+    setPhase((current) => current === snapshot.phase ? current : snapshot.phase)
+    setRepCount((current) => current === snapshot.reps.length ? current : snapshot.reps.length)
     setClassification((current) =>
       current.label === nextClassification.label &&
       Math.abs(current.confidence - nextClassification.confidence) < 0.05

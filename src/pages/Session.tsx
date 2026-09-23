@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Activity,
+  ArrowLeft,
   Camera,
   CircleStop,
   Flame,
@@ -42,14 +44,9 @@ import SettingsModal from '@/components/SettingsModal'
 import { buildRepAnalysis, normalizeFormToleranceMode, type ExerciseId } from '@/lib/biomechanics_v2'
 import { extractFrameAngles } from '@/lib/pose/jointAngles'
 import { audioEngine } from '@/lib/audioEngine'
-import { TechniqueCoach } from '@/lib/techniqueCoach'
 import { saveSessionToHistory, useUserSettings } from '@/lib/workoutStore'
-import { api, getStoredToken, waitForCoachSummary, type CoachSummary, type SessionPayload } from '@/lib/api'
+import { api, getStoredToken, waitForCoachSummary, type CoachSummary } from '@/lib/api'
 import CoachNote, { type CoachNoteState } from '@/components/CoachNote'
-import MuscleHeatmap from '@/components/MuscleHeatmap'
-import WorkoutSummaryCard from '@/components/WorkoutSummaryCard'
-import WorkspaceHeader from '@/components/WorkspaceHeader'
-import { aggregateMuscleLoad, estimateMuscleLoad } from '@/lib/muscleModel'
 import {
   EXERCISES,
   angleForExercise,
@@ -67,14 +64,6 @@ type SessionViewPhase = SessionPhase | 'media'
 type MobileTab = 'coach' | 'data'
 
 const CAMERA_VIDEO_MIRRORED = false
-const DETECTION_EXERCISE_IDS: Record<string, string> = {
-  SQUAT: 'squat',
-  DEADLIFT: 'deadlift',
-  BENCH_PRESS: 'bench',
-  OVERHEAD_PRESS: 'ohp',
-  BICEP_CURL: 'curl',
-  LUNGE: 'lunge',
-}
 
 const SEV_STYLE: Record<FeedItem['severity'], string> = {
   good: 'border-emerald-600 bg-emerald-50 text-emerald-950',
@@ -98,28 +87,22 @@ export default function Session() {
   const [feed, setFeed] = useState<FeedItem[]>([])
   const [elapsed, setElapsed] = useState(0)
   const [summaryOpen, setSummaryOpen] = useState(false)
-  const [pendingSet, setPendingSet] = useState<SessionPayload | null>(null)
-  const [workoutSets, setWorkoutSets] = useState<SessionPayload[]>([])
-  const [workoutComplete, setWorkoutComplete] = useState(false)
   const [syncState, setSyncState] = useState<'idle' | 'saving' | 'saved' | 'failed'>('idle')
   const [coachState, setCoachState] = useState<CoachNoteState>('offline')
   const [coachSummary, setCoachSummary] = useState<CoachSummary | null>(null)
   const coachAbandonedRef = useRef(false)
-  const workoutIdRef = useRef(crypto.randomUUID())
   const [summaryTab, setSummaryTab] = useState<'table' | 'graphs'>('table')
   const [tab, setTab] = useState<MobileTab>('coach')
   const [countdownVal, setCountdownVal] = useState<number>(3)
   const [isOffline, setIsOffline] = useState<boolean>(!navigator.onLine)
-  const [detectedCandidate, setDetectedCandidate] = useState<ExerciseDef | null>(null)
 
-  const { settings, updateSettings } = useUserSettings()
+  const { settings } = useUserSettings()
   const repTimerRef = useRef<number | null>(null)
   const clockRef = useRef<number | null>(null)
   const countdownTimerRef = useRef<number | null>(null)
   const feedIdRef = useRef(0)
   const repsRef = useRef<RepData[]>([])
   const angleRef = useRef<CameraAngle | null>(null)
-  const techniqueCoachRef = useRef(new TechniqueCoach())
 
   const {
     source: mediaSource,
@@ -160,33 +143,21 @@ export default function Session() {
     }
   }, [])
 
-  useEffect(() => {
-    if (settings.exerciseSelectionMode === 'manual') {
-      setSelectedExerciseId(settings.manualExerciseId)
-    }
-  }, [settings.exerciseSelectionMode, settings.manualExerciseId])
-
   const pushFeed = useCallback((message: string, severity: FeedItem['severity']) => {
     setFeed((f) => [{ id: feedIdRef.current++, time: now(), message, severity }, ...f].slice(0, 40))
   }, [])
-
-  const deliverTechniqueFeedback = useCallback((rep: RepData) => {
-    const feedback = techniqueCoachRef.current.next(rep)
-    audioEngine.playTone(
-      rep.severity === 'crit' ? 'crit' : rep.severity === 'warn' ? 'warn' : 'rep',
-    )
-    if (!feedback) return
-    pushFeed(feedback.message, feedback.severity)
-    if (feedback.speak) audioEngine.speakCue(feedback.message, feedback.severity === 'crit')
-  }, [pushFeed])
 
   const handleTrackedRep = useCallback(
     (rep: RepData) => {
       repsRef.current = [...repsRef.current, rep]
       setReps(repsRef.current)
-      deliverTechniqueFeedback(rep)
+      pushFeed(rep.cue, rep.severity)
+      audioEngine.playTone(
+        rep.severity === 'crit' ? 'crit' : rep.severity === 'warn' ? 'warn' : 'rep',
+      )
+      audioEngine.speakCue(rep.cue, rep.severity === 'crit')
     },
-    [deliverTechniqueFeedback],
+    [pushFeed],
   )
 
   const poseTelemetry = usePoseTelemetry({
@@ -220,7 +191,7 @@ export default function Session() {
     [mediaSource, poseTelemetry.publish],
   )
   const { isCalibrated, classification: detectedExercise } = useRepAnalysis({
-    active: poseTrackingEnabled,
+    active: poseTrackingEnabled && exercise !== null,
     exercise,
     lifecycleKey: mediaLifecycleKey,
     sample: poseTracking.latestSample,
@@ -228,14 +199,6 @@ export default function Session() {
     onRep: handleTrackedRep,
     onSample: handleAnalyzedSample,
   })
-
-  useEffect(() => {
-    if (settings.exerciseSelectionMode !== 'detect' || exercise || detectedCandidate) return
-    if (detectedExercise.label === 'UNKNOWN' || detectedExercise.confidence < 0.68) return
-    const exerciseId = DETECTION_EXERCISE_IDS[detectedExercise.label]
-    const match = EXERCISES.find((item) => item.id === exerciseId)
-    if (match) setDetectedCandidate(match)
-  }, [detectedCandidate, detectedExercise, exercise, settings.exerciseSelectionMode])
 
   // A tracked set has no scripted timeline, so its clock follows live inference.
   useEffect(() => {
@@ -269,7 +232,11 @@ export default function Session() {
         const rep = simulateRep(nextIndex, ex)
         repsRef.current = [...repsRef.current, rep]
         setReps(repsRef.current)
-        deliverTechniqueFeedback(rep)
+        pushFeed(rep.cue, rep.severity)
+
+        // Audio HUD feedback trigger
+        audioEngine.playTone(rep.severity === 'crit' ? 'crit' : rep.severity === 'warn' ? 'warn' : 'rep')
+        audioEngine.speakCue(rep.cue, rep.severity === 'crit')
 
         if (rep.effort >= 85) {
           pushFeed(`Effort at ${rep.effort}% — velocity decay & form degradation detected`, 'info')
@@ -287,7 +254,7 @@ export default function Session() {
         scheduleNextRep(ex)
       }, delay)
     },
-    [deliverTechniqueFeedback, pushFeed],
+    [pushFeed],
   )
 
   const startLiveSet = useCallback(
@@ -348,7 +315,6 @@ export default function Session() {
   const clearAnalysisData = useCallback(() => {
     clearTimers()
     audioEngine.cancelAll()
-    techniqueCoachRef.current.reset()
     repsRef.current = []
     angleRef.current = null
     setExercise(null)
@@ -362,39 +328,12 @@ export default function Session() {
 
   /** Locks in what a tracked set is scored against; detection never changes this choice. */
   const prepareTrackedSet = useCallback(() => {
-    setDetectedCandidate(null)
-    if (settings.exerciseSelectionMode === 'detect') {
-      setExercise(null)
-      angleRef.current = null
-      setAngle(null)
-      return
-    }
     const ex = EXERCISES.find((e) => e.id === selectedExerciseId) ?? EXERCISES[0]
     setExercise(ex)
     const a = angleForExercise(ex)
     angleRef.current = a
     setAngle(a)
-  }, [selectedExerciseId, settings.exerciseSelectionMode])
-
-  const confirmDetectedExercise = () => {
-    if (!detectedCandidate) return
-    setExercise(detectedCandidate)
-    const detectedAngle = angleForExercise(detectedCandidate)
-    angleRef.current = detectedAngle
-    setAngle(detectedAngle)
-    setDetectedCandidate(null)
-    pushFeed(`Exercise confirmed: ${detectedCandidate.name}. Rep calibration started.`, 'info')
-  }
-
-  const chooseExerciseManually = () => {
-    updateSettings({ exerciseSelectionMode: 'manual' })
-    const manualExercise = EXERCISES.find((item) => item.id === selectedExerciseId) ?? EXERCISES[0]
-    setExercise(manualExercise)
-    const manualAngle = angleForExercise(manualExercise)
-    angleRef.current = manualAngle
-    setAngle(manualAngle)
-    setDetectedCandidate(null)
-  }
+  }, [selectedExerciseId])
 
   const startCamera = () => {
     stopPoseTracking()
@@ -445,63 +384,46 @@ export default function Session() {
     clearTimers()
     audioEngine.cancelAll()
     setPhase('ended')
+    setSummaryOpen(true)
+
     if (exercise && repsRef.current.length > 0) {
-      setPendingSet({
-        workoutId: workoutIdRef.current,
+      const avgForm = Math.round(repsRef.current.reduce((a, r) => a + r.formScore, 0) / repsRef.current.length)
+      const peakEffort = Math.max(...repsRef.current.map((r) => r.effort))
+      const payload = {
         exerciseName: exercise.name,
         exerciseId: exercise.id,
         cameraAngle: angle || exercise.bestAngle,
         durationSeconds: elapsed,
         totalReps: repsRef.current.length,
-        avgFormScore: Math.round(repsRef.current.reduce((sum, rep) => sum + rep.formScore, 0) / repsRef.current.length),
-        peakEffort: Math.max(...repsRef.current.map((rep) => rep.effort)),
-        muscleLoad: estimateMuscleLoad(exercise.id, repsRef.current),
+        avgFormScore: avgForm,
+        peakEffort,
         reps: repsRef.current,
-      })
-    }
-    setSummaryOpen(true)
-  }
+      }
 
-  const persistSet = (payload: SessionPayload) => {
-    saveSessionToHistory({ ...payload, cameraAngle: payload.cameraAngle as CameraAngle })
-    if (!getStoredToken()) return
-    setSyncState('saving')
-    coachAbandonedRef.current = false
-    api.saveSession(payload)
-      .then(async ({ id }) => {
-        setSyncState('saved')
-        setCoachState('pending')
-        const job = await api.generateSummary(id)
-        const finished = await waitForCoachSummary(job.jobId, () => coachAbandonedRef.current)
-        if (!coachAbandonedRef.current) {
-          setCoachSummary(finished)
-          setCoachState(finished.status === 'complete' ? 'complete' : 'failed')
-        }
-      })
-      .catch((err) => {
-        console.error('Failed to sync session to the backend', err)
-        if (!coachAbandonedRef.current) {
-          setSyncState('failed')
-          setCoachState((state) => state === 'pending' ? 'failed' : state)
-        }
-      })
-  }
+      saveSessionToHistory(payload)
 
-  const logSet = (finishWorkout: boolean) => {
-    if (!pendingSet) return
-    persistSet(pendingSet)
-    const sets = [...workoutSets, pendingSet]
-    setWorkoutSets(sets)
-    setPendingSet(null)
-    if (finishWorkout) {
-      setWorkoutComplete(true)
-      return
+      if (getStoredToken()) {
+        setSyncState('saving')
+        coachAbandonedRef.current = false
+        api
+          .saveSession(payload)
+          .then(async ({ id }) => {
+            setSyncState('saved')
+            setCoachState('pending')
+            const job = await api.generateSummary(id)
+            const finished = await waitForCoachSummary(job.jobId, () => coachAbandonedRef.current)
+            if (coachAbandonedRef.current) return
+            setCoachSummary(finished)
+            setCoachState(finished.status === 'complete' ? 'complete' : 'failed')
+          })
+          .catch((err) => {
+            console.error('Failed to sync session to the backend', err)
+            if (coachAbandonedRef.current) return
+            setSyncState((s) => (s === 'saved' ? s : 'failed'))
+            setCoachState((s) => (s === 'pending' ? 'failed' : s))
+          })
+      }
     }
-    setSummaryOpen(false)
-    clearAnalysisData()
-    resetMedia()
-    setPhase('setup')
-    setDemoActive(false)
   }
 
   const reset = () => {
@@ -515,27 +437,14 @@ export default function Session() {
     setSyncState('idle')
     setCoachState('offline')
     setCoachSummary(null)
-    setPendingSet(null)
-    setWorkoutSets([])
-    workoutIdRef.current = crypto.randomUUID()
-    setWorkoutComplete(false)
   }
 
   const currentExDef = EXERCISES.find((e) => e.id === selectedExerciseId) || EXERCISES[0]
-  const rec = settings.exerciseSelectionMode === 'detect'
-    ? {
-        recommendedCamera: 'Three-quarter' as CameraAngle,
-        recommendedDistance: '2.5–3.0 meters',
-        framingGuidance: 'Keep your full body, hands, and feet visible so movement signatures can be compared.',
-        setupNotes: 'A three-quarter view preserves useful sagittal and frontal-plane joint geometry for confirmation.',
-      }
-    : currentExDef.recommendation
+  const rec = currentExDef.recommendation
 
   const latest = reps[reps.length - 1]
   const avgForm = reps.length ? Math.round(reps.reduce((a, r) => a + r.formScore, 0) / reps.length) : 0
   const effort = latest?.effort ?? 0
-  const muscleLoad = useMemo(() => exercise ? estimateMuscleLoad(exercise.id, reps) : null, [exercise, reps])
-  const workoutMuscleLoad = useMemo(() => aggregateMuscleLoad(workoutSets.map((set) => set.muscleLoad)), [workoutSets])
   const zone = zoneFor(effort)
   const toleranceMode = normalizeFormToleranceMode(settings.sensitivity)
   const liveFrameMetrics = useMemo(() => {
@@ -569,7 +478,7 @@ export default function Session() {
   const analysisLive = setInProgress || phase === 'ended'
   // The setup selection remains authoritative; heuristic detection is informational only.
   const detectionBadge = realTrackingMode ? 'MANUAL' : `${confidence}%`
-  const detectedExerciseLabel = detectedExercise.label.replaceAll('_', ' ')
+  const detectedExerciseLabel = detectedExercise.label.replace('_', ' ')
   const detectedExerciseConfidence = Math.round(detectedExercise.confidence * 100)
   const mm = String(Math.floor(elapsed / 60)).padStart(2, '0')
   const ss = String(elapsed % 60).padStart(2, '0')
@@ -682,29 +591,37 @@ export default function Session() {
     <div className="min-h-screen touch-manipulation bg-background pb-24 lg:pb-0">
       <div className="noise" />
 
-      <WorkspaceHeader
-        status={
-          <>
+      {/* Header */}
+      <header className="sticky top-0 z-40 border-b-2 border-foreground bg-background/90 backdrop-blur">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
+          <div className="flex items-center gap-2">
+            <Link to="/">
+              <Button variant="ghost" size="icon" aria-label="Back home" className="border-2 border-transparent hover:border-foreground">
+                <ArrowLeft className="h-5 w-5" />
+              </Button>
+            </Link>
+            <span className="text-xl font-bold tracking-tight">
+              FORMFIT<span className="text-primary">*</span>
+            </span>
             {isOffline && (
-              <span className="mono-data flex items-center gap-1 border-2 border-amber-600 bg-amber-500/10 px-2 py-0.5 text-[9px] font-semibold tracking-[0.15em] text-amber-700">
+              <span className="mono-data border-2 border-amber-600 bg-amber-500/10 px-2 py-0.5 text-[9px] font-semibold text-amber-700 tracking-[0.15em] flex items-center gap-1">
                 <WifiOff className="h-3 w-3" /> OFFLINE EDGE MODE
               </span>
             )}
             {source && phase !== 'setup' && (
-              <span className="mono-data border-2 border-foreground bg-secondary px-2 py-0.5 text-[9px] font-semibold tracking-[0.25em]">
+              <span className="mono-data hidden border-2 border-foreground bg-secondary px-2 py-0.5 text-[9px] font-semibold tracking-[0.25em] sm:inline-block">
                 {source === 'demo' ? 'SIMULATED ANALYSIS' : 'REAL POSE TRACKING'}
               </span>
             )}
-          </>
-        }
-        actions={
-          <>
+          </div>
+
+          <div className="flex items-center gap-3">
             <SettingsModal />
             {phase === 'ended' && !summaryOpen && (
               <Button
                 size="sm"
                 onClick={() => setSummaryOpen(true)}
-                className="hard-shadow-sm border-2 border-foreground bg-primary font-mono text-xs font-bold text-primary-foreground"
+                className="hard-shadow-sm border-2 border-foreground bg-primary text-primary-foreground font-mono text-xs font-bold"
               >
                 REOPEN SUMMARY
               </Button>
@@ -724,9 +641,9 @@ export default function Session() {
                 </Button>
               </div>
             )}
-          </>
-        }
-      />
+          </div>
+        </div>
+      </header>
 
       <main className="mx-auto max-w-7xl px-4 py-4 lg:py-6">
         <div className="lg:grid lg:grid-cols-3 lg:gap-6">
@@ -786,38 +703,21 @@ export default function Session() {
                   {/* AI Camera Guidance Box & 3D Preview Window */}
                   <div className="w-full max-w-md space-y-2.5 border-2 border-foreground bg-card p-3.5 sm:p-4 hard-shadow-sm text-left">
                     <div>
-                      <div className="mb-1 flex items-center justify-between gap-2">
-                        <label className="mono-data block text-[10px] font-bold tracking-wider text-primary">
-                          EXERCISE MODE
-                        </label>
-                        <span className="mono-data border border-foreground px-2 py-0.5 text-[8px] font-bold">
-                          {settings.exerciseSelectionMode === 'detect' ? 'AI DETECTION' : 'MANUAL'}
-                        </span>
-                      </div>
-                      {settings.exerciseSelectionMode === 'manual' ? (
-                        <Select
-                          value={selectedExerciseId}
-                          onValueChange={(value) => {
-                            setSelectedExerciseId(value)
-                            updateSettings({ manualExerciseId: value })
-                          }}
-                        >
-                          <SelectTrigger className="h-9 w-full border-2 font-mono text-xs font-semibold bg-background">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent className="border-2 font-mono text-xs">
-                            {EXERCISES.map((e) => (
-                              <SelectItem key={e.id} value={e.id}>
-                                {e.name} ({e.primaryMuscles[0]})
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      ) : (
-                        <p className="border-2 border-dashed border-foreground bg-background p-2 text-[10px] text-muted-foreground">
-                          Start camera or upload video. FormFit will wait for a stable movement signature, then ask you to confirm before scoring.
-                        </p>
-                      )}
+                      <label className="mono-data block text-[10px] font-bold tracking-wider text-primary mb-1">
+                        SELECT EXERCISE
+                      </label>
+                      <Select value={selectedExerciseId} onValueChange={setSelectedExerciseId}>
+                        <SelectTrigger className="h-9 w-full border-2 font-mono text-xs font-semibold bg-background">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="border-2 font-mono text-xs">
+                          {EXERCISES.map((e) => (
+                            <SelectItem key={e.id} value={e.id}>
+                              {e.name} ({e.primaryMuscles[0]})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
 
                     <div className="border-2 border-foreground/20 bg-background p-2.5 space-y-1.5">
@@ -1254,8 +1154,6 @@ export default function Session() {
               </div>
             </div>
 
-            {muscleLoad && reps.length > 0 && <MuscleHeatmap summary={muscleLoad} compact />}
-
             <div className="hard-shadow-sm flex-1 border-2 border-foreground bg-card">
               <div className="flex items-center gap-2 border-b-2 border-foreground px-4 py-2.5">
                 <Timer className="h-4 w-4 text-primary" />
@@ -1267,29 +1165,6 @@ export default function Session() {
         </div>
       </main>
 
-      <Dialog open={detectedCandidate !== null} onOpenChange={() => undefined}>
-        <DialogContent className="hard-shadow border-2 border-foreground bg-card sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="font-serifit text-2xl italic">Confirm exercise</DialogTitle>
-            <DialogDescription>
-              The pose classifier found a stable movement signature, but you stay in control before any reps are scored.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="border-2 border-foreground bg-background p-4">
-            <p className="mono-data text-[9px] tracking-[0.2em] text-primary">AI SUGGESTION</p>
-            <p className="mt-1 text-2xl font-black uppercase">{detectedCandidate?.name}</p>
-            <p className="mono-data mt-2 text-[10px] text-muted-foreground">
-              CONFIDENCE {Math.round(detectedExercise.confidence * 100)}% · {detectedExercise.reason}
-            </p>
-          </div>
-          <p className="text-xs text-muted-foreground">Confirm only if this matches your movement. Scoring and muscle-demand estimation begin after confirmation.</p>
-          <div className="grid grid-cols-2 gap-3">
-            <Button variant="outline" className="border-2 border-foreground font-bold" onClick={chooseExerciseManually}>CHOOSE MANUALLY</Button>
-            <Button className="border-2 border-foreground font-bold" onClick={confirmDetectedExercise}>CONFIRM</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
       {/* Mobile Sticky Action Bar */}
       <AnimatePresence>
         {setInProgress && (
@@ -1298,7 +1173,7 @@ export default function Session() {
             animate={{ y: 0 }}
             exit={{ y: 80 }}
             transition={{ type: 'spring', stiffness: 300, damping: 28 }}
-            className="fixed inset-x-0 bottom-14 z-40 border-t-2 border-foreground bg-background lg:hidden"
+            className="fixed inset-x-0 bottom-0 z-40 border-t-2 border-foreground bg-background lg:hidden"
             style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
           >
             <div className="flex items-center justify-between gap-3 px-4 py-3">
@@ -1322,14 +1197,12 @@ export default function Session() {
         <DialogContent className="hard-shadow max-h-[92dvh] overflow-y-auto border-2 border-foreground bg-card sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle className="font-serifit text-2xl italic">
-              {workoutComplete ? 'Workout complete' : `Set summary — ${exercise?.name ?? ''}`}
+              Set summary — {exercise?.name}
             </DialogTitle>
             <DialogDescription className="mono-data text-[10px] tracking-[0.25em]">
               {mm}:{ss} — {angle?.toUpperCase()} VIEW — TELEMETRY BREAKDOWN
             </DialogDescription>
           </DialogHeader>
-
-          {workoutComplete && <WorkoutSummaryCard sets={workoutSets} muscleLoad={workoutMuscleLoad} />}
 
           {syncState !== 'idle' && (
             <p
@@ -1368,8 +1241,6 @@ export default function Session() {
               </motion.div>
             ))}
           </div>
-
-          {muscleLoad && muscleLoad.entries.length > 0 && <MuscleHeatmap summary={muscleLoad} />}
 
           {/* Coach's Note Box */}
           <CoachNote
@@ -1418,12 +1289,16 @@ export default function Session() {
             )}
           </div>
 
-          <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-end">
-            {workoutComplete ? (
-              <Button className="hard-shadow-sm h-11 border-2 border-foreground bg-foreground font-bold text-background" onClick={reset}>START NEW WORKOUT</Button>
-            ) : (
-              <><Button variant="outline" className="hard-shadow-sm h-11 border-2 font-bold" onClick={() => logSet(false)} disabled={!pendingSet}>LOG SET &amp; CONTINUE</Button><Button className="hard-shadow-sm h-11 border-2 border-foreground bg-foreground font-bold text-background" onClick={() => logSet(true)} disabled={!pendingSet}>FINISH WORKOUT</Button></>
-            )}
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end pt-2">
+            <Button variant="outline" className="hard-shadow-sm h-11 border-2 font-bold" onClick={reset}>
+              NEW SET
+            </Button>
+            <Button
+              className="hard-shadow-sm h-11 border-2 border-foreground bg-foreground font-bold text-background hover:bg-foreground/90"
+              onClick={() => setSummaryOpen(false)}
+            >
+              CLOSE &amp; REVIEW
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
