@@ -16,7 +16,7 @@ torso-length ratios (standing hipAnkle ≈ 2, seated ≈ 1, lying ≈ 0).
 """
 from statistics import median
 from uuid import uuid4
-from .features import ANGLE_KEYS, stat
+from .features import ANGLE_KEYS, extrema_envelope, stat
 
 DEG = 'degrees'
 # Softness of the signature bands: how far outside [lo, hi] a statistic can sit before its fit hits 0.
@@ -527,7 +527,9 @@ def learn(name, cameras, segments_fn, muscles=(), exercise_id=None):
     if not candidates or max(candidates.values()) < 25:
         raise ValueError('Not enough visible joint movement to learn from. Keep the whole body in frame and perform full repetitions.')
     primary = max(candidates, key=candidates.get)
-    lo, hi = stat(rows, primary, 'p10'), stat(rows, primary, 'p90')
+    # Gates come from the movement's extrema: a teaching set with pauses between reps skews
+    # whole-window percentiles toward the rest position, and the learned gates would never open.
+    lo, hi = extrema_envelope(rows, primary, 20) or (stat(rows, primary, 'p10'), stat(rows, primary, 'p90'))
     start = stat(rows, primary, 'start')
     cycle = FLEX if start >= (lo + hi) / 2 else EXTEND
     span = hi - lo

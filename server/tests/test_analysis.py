@@ -482,3 +482,71 @@ def test_llm_coach_retries_without_response_format_on_400(monkeypatch):
     result=LlmCoach('key','http://x','m').complete('Squat','summary',[])
     assert result['cues']==['Sit deeper — the knee stayed above 100°.']
     assert calls==[True,False]
+
+
+# ─── Detection accuracy: extrema-derived gates and evidence-aware classification ─────────────
+def _rest_heavy_rows(reps=3, rep_frames=20, rest_frames=30):
+    """Squat-like knee/hip signals with long standing plateaus between reps."""
+    rows=[]; t=0
+    for _ in range(reps):
+        for i in range(rep_frames):
+            d=(1-cos(i/(rep_frames-1)*2*pi))/2
+            rows.append({'t':t,'knee':175-90*d,'otherKnee':175-90*d,'hip':175-70*d,'trunk':8+25*d,'hipAnkle':2-.8*d}); t+=200
+        for _ in range(rest_frames):
+            rows.append({'t':t,'knee':175,'otherKnee':175,'hip':175,'trunk':8,'hipAnkle':2.0}); t+=200
+    return rows
+
+
+def test_extrema_envelope_ignores_rest_plateaus_and_reads_partial_reps():
+    from app.analysis.features import extrema_envelope
+    assert extrema_envelope([{'t':i*200,'knee':170} for i in range(40)],'knee',20) is None
+    lo,hi=extrema_envelope(_rest_heavy_rows(),'knee',20)
+    assert lo<100 and hi>170
+    # A single descent with no return still informs the envelope.
+    rows=[{'t':i*200,'knee':v} for i,v in enumerate([175]*10+[175-9*j for j in range(10)])]
+    lo,hi=extrema_envelope(rows,'knee',20)
+    assert lo<120 and hi>170
+
+
+def test_rest_heavy_set_still_counts_every_rep():
+    from app.analysis.engine import count_reps
+    # Whole-window p10/p90 of this signal both read ≈standing, so percentile gates never open.
+    found,signal=count_reps(LIBRARY['squat'],{'id':'c','view':'side','rows':_rest_heavy_rows()})
+    assert len(found)==3 and signal=='knee'
+
+
+def test_classifier_uses_the_opposite_side_when_the_dominant_side_is_hidden():
+    rows=[dict(r,knee=None) for r in synthetic_rows('squat')]
+    detection=classify([{'id':'c','view':'side','rows':rows}])
+    assert detection['exercise']=='squat' and detection['confidence']>=.68
+
+
+def test_classifier_detects_from_partial_visibility_and_abstains_on_almost_none():
+    # Only knee, hip and posture signals visible; every one fits the squat signature.
+    keep={'t','knee','hip','trunk','hipAnkle'}
+    rows=[{k:v for k,v in r.items() if k in keep} for r in synthetic_rows('squat')]
+    detection=classify([{'id':'c','view':'side','rows':rows}])
+    assert detection['exercise']=='squat' and detection['confidence']>=.68
+    # Only two signals is a guess, not a detection.
+    rows=[{k:v for k,v in r.items() if k in {'t','knee','hip'}} for r in synthetic_rows('squat')]
+    assert classify([{'id':'c','view':'side','rows':rows}])['exercise'] is None
+
+
+def test_rhythm_summary_counts_cycles_not_rest_frames():
+    from app.analysis.llm_detect import _rhythm
+    text=_rhythm(_rest_heavy_rows(),segments)
+    assert 'about 3 complete cycles' in text
+
+
+def test_learn_from_rest_heavy_set_derives_gates_that_still_count_reps():
+    stream=squat_stream()
+    standing=deepcopy(stream['frames'][0]['landmarks'])
+    last=stream['frames'][-1]['timestampMs']
+    for i in range(1,41):   # 8 s of standing still after the two reps
+        stream['frames'].append({'timestampMs':last+i*200,'landmarks':standing})
+    spec=learn_from(payload(streams=[stream]),'Sissy squat',['quads'])
+    from app.analysis.engine import count_reps
+    from app.analysis.features import features as featurize
+    camera=featurize(payload(streams=[stream]).streams[0])
+    found,signal=count_reps(spec,camera)
+    assert len(found)==2 and signal=='knee'
