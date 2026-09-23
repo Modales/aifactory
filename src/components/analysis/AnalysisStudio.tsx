@@ -19,10 +19,17 @@ type Stage = 'setup' | 'recording' | 'review'
 const MAX_FRAMES = 2700   // ~8 fps for the full six minutes; must match the server's per-camera cap
 const MAX_SECONDS = 360
 const LIVE_INTERVAL_MS = 2500
+const SENT_SNAPSHOTS = 4   // must match the server's per-camera cap
+
+/** Up to SENT_SNAPSHOTS stills spread evenly across the set, always including the latest. */
+function spread(images: string[]) {
+  if (images.length <= SENT_SNAPSHOTS) return images
+  return Array.from({ length: SENT_SNAPSHOTS }, (_, i) => images[Math.round(i * (images.length - 1) / (SENT_SNAPSHOTS - 1))])
+}
 
 /**
  * Record flow: pick exercise + angle → Record → live reps/form cues → Stop → review & save.
- * Only pose landmarks leave the device; video never does.
+ * Pose landmarks plus a few downscaled stills (for AI exercise detection) leave the device; video never does.
  */
 export default function AnalysisStudio() {
   const { status } = useAuth()
@@ -45,6 +52,9 @@ export default function AnalysisStudio() {
 
   const workoutId = useRef(crypto.randomUUID())
   const streams = useRef<Record<string, CameraStream>>({})
+  const snapshots = useRef<Record<string, string[]>>({})
+  /** Captured streams with their spread of stills attached, ready to send. */
+  const collect = () => Object.values(streams.current).map(s => ({ ...s, frames: [...s.frames], snapshots: spread(snapshots.current[s.cameraId] ?? []) }))
   const ended = useRef(new Set<string>())
   const generation = useRef(0)
   const activeRef = useRef(false)
@@ -67,6 +77,13 @@ export default function AnalysisStudio() {
     if (stream.frames.length && frame.timestampMs <= stream.frames[stream.frames.length - 1].timestampMs) return
     stream.frames.push(frame)
     streams.current[id] = stream
+  }, [])
+  const onSnapshot = useCallback((id: string, image: string) => {
+    if (!activeRef.current) return
+    const list = snapshots.current[id] ?? []
+    list.push(image)
+    // Keep memory bounded on long sets: drop every other still, keeping the spread.
+    snapshots.current[id] = list.length > 60 ? list.filter((_, i) => i % 2 === 0) : list
   }, [])
   const onEnded = useCallback((id: string) => {
     ended.current.add(id)
@@ -96,7 +113,7 @@ export default function AnalysisStudio() {
   function start() {
     const problem = validate()
     if (problem) { setError(problem); return }
-    streams.current = {}; ended.current = new Set()
+    streams.current = {}; snapshots.current = {}; ended.current = new Set()
     setReport(null); setError(''); setElapsed(0); setSaved(false)
     generation.current++; activeRef.current = true
     setEpoch(performance.now()); setStage('recording')
@@ -107,7 +124,7 @@ export default function AnalysisStudio() {
     activeRef.current = false; generation.current++
     setStage('review'); setWorking(true)
     try {
-      const input = Object.values(streams.current).map(s => ({ ...s, frames: [...s.frames] }))
+      const input = collect()
       if (!input.length) throw new Error('No body landmarks were captured. Step back so your whole body is in frame and try again.')
       if (input.length !== configs.length) throw new Error('One angle never saw the athlete. Check every camera and try again.')
       setReport(await evaluate(input, exercise || null, configs.length > 1 && synchronized, true, workoutId.current))
@@ -144,7 +161,7 @@ export default function AnalysisStudio() {
       const seconds = Math.floor((performance.now() - epoch) / 1000)
       setElapsed(seconds)
       if (seconds >= MAX_SECONDS) { finishRef.current(); return }
-      const input = Object.values(streams.current)
+      const input = collect()
       if (pending || input.length !== configs.length || input.some(s => s.frames.length < 12)) return
       pending = true; setWorking(true)
       void evaluate(input, exercise || null, configs.length > 1 && synchronized, false, workoutId.current)
@@ -167,7 +184,7 @@ export default function AnalysisStudio() {
   }
 
   function reset() {
-    generation.current++; activeRef.current = false; streams.current = {}
+    generation.current++; activeRef.current = false; streams.current = {}; snapshots.current = {}
     workoutId.current = crypto.randomUUID()
     setStage('setup'); setReport(null); setError(''); setSaved(false); setWorking(false); setElapsed(0); setTeaching(false)
   }
@@ -185,7 +202,7 @@ export default function AnalysisStudio() {
             <h1>{stage === 'recording' ? <>Recording <em>live</em></> : stage === 'review' ? <>Review your <em>set</em></> : <>Record a <em>set</em></>}</h1>
             <p>{stage === 'recording' ? 'Reps and form update after each completed rep.' : stage === 'review' ? 'Measured joint angles from your camera, checked against simple technique targets.' : 'Pick the exercise, frame your whole body, hit Record.'}</p>
           </div>
-          <span className="record-private"><ShieldCheck size={15} />Video never leaves your device</span>
+          <span className="record-private"><ShieldCheck size={15} />Video never leaves your device · the AI sees a few stills</span>
         </div>
 
         {!signedIn && <section className="record-card pad signin-card"><p>Sign in to record, score and save your sets.</p><Link to="/login" state={{ from: '/session' }} className="solid-button">Sign in</Link><Link to="/signup" className="ghost-button">Create account</Link></section>}
@@ -196,7 +213,7 @@ export default function AnalysisStudio() {
           {stage !== 'review' && (
             <div className="record-stage">
               <div className={`capture-grid ${configs.length > 1 ? 'multi' : ''}`}>
-                {configs.map(c => <CaptureView key={c.id} config={c} showHeading={configs.length > 1} recording={stage === 'recording'} epoch={epoch} overlapStart={overlapStart} onFrame={onFrame} onReady={onReady} onEnded={onEnded} />)}
+                {configs.map(c => <CaptureView key={c.id} config={c} showHeading={configs.length > 1} recording={stage === 'recording'} epoch={epoch} overlapStart={overlapStart} onFrame={onFrame} onSnapshot={onSnapshot} onReady={onReady} onEnded={onEnded} />)}
               </div>
             </div>
           )}

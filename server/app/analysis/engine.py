@@ -404,9 +404,10 @@ PROPOSED = 'proposed'   # provisional id for an exercise the LLM named but the a
 
 
 def resolve(cameras, detection, library, detector, session_key):
-    """Second opinion when the rules are unsure. Returns (exercise_id, confidence, library, proposal, note)."""
+    """Pick the exercise. The AI model decides alone whenever one is configured; the rule classifier
+    only runs offline (no API key / tests). Returns (exercise_id, confidence, library, proposal, note)."""
     candidate, confidence = detection['exercise'], detection['confidence']
-    if confidence >= DETECT_THRESHOLD or detector is None:
+    if detector is None:
         return (candidate if confidence >= DETECT_THRESHOLD else None), confidence, library, None, None
     opinion = detector(cameras, detection, library, segments, session_key)
     if not opinion or opinion['confidence'] < .5:
@@ -464,8 +465,10 @@ def hold(session_key, exercise, confidence, source, note):
 
 def analyze(payload: AnalysisRequest, library=None, detector=None, coach=None):
     library = library or LIBRARY
-    cameras = [features(s) for s in payload.streams]
+    cameras = [{**features(s), 'snapshots': s.snapshots} for s in payload.streams]
     warnings = []
+    if detector is not None and not getattr(detector, 'available', True):
+        detector = None     # no API key: fall back to the rule classifier
     if len(cameras) > 1:
         overlap_start = max(c['rows'][0]['t'] for c in cameras)
         overlap_end = min(c['rows'][-1]['t'] for c in cameras)
@@ -479,7 +482,7 @@ def analyze(payload: AnalysisRequest, library=None, detector=None, coach=None):
     if payload.confirmedExercise and payload.confirmedExercise not in library:
         raise ValueError('Unknown exercise. Pick one from the library or teach it first.')
     active = active_window(cameras)
-    detection = classify(active, library)
+    detection = classify(active, library) if detector is None else {'exercise': None, 'confidence': 0, 'candidates': [], 'alternatives': []}
     candidate, confidence = detection['exercise'], detection['confidence']
     proposal, note, source = None, None, 'detected'
     if payload.confirmedExercise:
@@ -575,7 +578,7 @@ def analyze(payload: AnalysisRequest, library=None, detector=None, coach=None):
             'status': 'scored' if scores else 'insufficient_evidence', 'repCount': len(reps),
             'score': score, 'reps': reps, 'focus': focus, 'headline': headline(name, reps, score, focus),
             'coach': coach_notes,
-            'views': [{**{k: v for k, v in c.items() if k != 'rows'},
+            'views': [{**{k: v for k, v in c.items() if k not in ('rows', 'snapshots')},
                        'coverage': {k: coverage(c['rows'], k) for k in ('elbow', 'shoulder', 'hip', 'knee', 'ankle', 'trunk')}} for c in cameras],
             'warnings': warnings, 'notAssessed': missing, 'disclaimer': DISCLAIMER,
             'durationSeconds': duration}

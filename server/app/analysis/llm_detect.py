@@ -1,11 +1,9 @@
-"""LLM-assisted exercise recognition — the second opinion behind the rule classifier.
+"""LLM exercise recognition — the only detector whenever an API key is configured.
 
-The deterministic classifier in ``engine.classify`` is fast but only as good as its hand-tuned
-signature bands. When it is unsure (low confidence, or nothing above threshold) we describe the
-observed movement in plain measurements — joint-angle ranges, posture, rhythm, the rule
-classifier's own guesses — and ask a language model to name the exercise from the library, or
-to propose a new one when nothing fits. Only numbers derived from landmarks are sent; no video,
-no images, no landmarks.
+We describe the observed movement in plain measurements (joint-angle ranges, posture, rhythm) and
+attach a few downscaled camera stills so the model can see the equipment, then ask it to name the
+exercise from the library, or to propose a new one when nothing fits. No video and no raw
+landmarks are sent; the stills are never stored.
 
 Results are cached per recording session so the live loop (one evaluation every few seconds)
 asks the model only while the answer is still open.
@@ -25,8 +23,10 @@ RETRY_SECONDS = 6           # an unsure answer is re-asked after this many secon
 RECHECK_GROWTH = 1.6
 RECHECK_MIN_SECONDS = 6
 SESSION_TTL = 15 * 60
+MAX_STILLS = 6
 SYSTEM = """You identify gym exercises — free weights, bodyweight, cables and machines — from 2D pose measurements captured by a phone camera.
-You receive: a description of the movement (joint angle ranges in degrees, posture, how the hips/hands/feet travel through the frame, where the hands are at each end of the rep, joint visibility, rhythm), guesses from a rule-based classifier with scores, and the exercise library (id: name — primary joint, posture).
+You receive: a few still photos from the camera spread across the set (oldest first) when available, a description of the movement (joint angle ranges in degrees, posture, how the hips/hands/feet travel through the frame, where the hands are at each end of the rep, joint visibility, rhythm), and the exercise library (id: name — primary joint, posture).
+The photos are your primary evidence: look at them FIRST to see the setup (which machine, bench, cable station, barbell, dumbbells or no equipment at all) and the body position (standing, seated, lying, plank, hanging). Then use the measurements only to see which joint moves and how. The posture words in the measurements are derived from 2D joint positions and are often wrong (a tilted or sideways phone makes a plank read as standing) — whenever the photos show the body position, the photos win.
 Angle conventions: knee/hip/elbow 180 = straight. Shoulder angle = elbow-shoulder-hip (arm at side ~15, horizontal ~90, overhead ~170). Trunk = lean from vertical (0 upright, 90 horizontal). Distances are in torso lengths.
 
 How to reason, especially around machines and cables:
@@ -40,10 +40,9 @@ How to reason, especially around machines and cables:
   seated, hands travelling vertically from shoulder height to overhead → seated/machine shoulder press;
   standing, upper arm pinned, elbow straightens with hands below the chest → triceps pushdown; elbow bends → cable curl;
   standing or seated, elbows almost fixed, shoulder angle opens/closes → raises or flys (pec deck/cable fly = fly family).
-- The rule guesses are hand-tuned bands that often fail on machines; treat them as hints, not answers.
 
 Reply with ONLY a JSON object, fields in this order:
-{"observations": "<≤2 sentences: posture, what moves, what stays fixed, hand/foot path>", "exerciseId": "<library id or null>", "newExercise": null | {"name": "<short common name>", "family": "<family id>", "muscles": ["<up to 4 muscle ids>"]}, "confidence": 0.0-1.0, "reason": "<one sentence quoting the measurements that decided it>"}
+{"scene": "<what the photos show: equipment and body position, or \"no photos\">", "observations": "<≤2 sentences: posture, what moves, what stays fixed, hand/foot path>", "exerciseId": "<library id or null>", "newExercise": null | {"name": "<short common name>", "family": "<family id>", "muscles": ["<up to 4 muscle ids>"]}, "confidence": 0.0-1.0, "reason": "<one sentence naming what in the photos and measurements decided it>"}
 Rules: prefer a library id when the movement plausibly matches one — a machine or cable version of a library movement IS that movement (pick the machine/cable variant id if one exists). Choose the parent movement, not a variant, unless the measurements clearly separate them. Use newExercise only when no library entry fits; then set exerciseId to null. Be honest with confidence: static holds, a single partial rep, or a movement two library entries explain equally well deserve ≤0.5."""
 
 
@@ -192,11 +191,13 @@ def describe(cameras, detection, segments_fn):
             lines.append('  At each end of the movement: ' + ends)
         lines.append('  Joint visibility: ' + _visibility(rows))
         lines.append('  Rhythm: ' + _rhythm(rows, segments_fn))
-    if detection['candidates']:
-        lines.append('Rule-based classifier guesses: ' + ', '.join(f"{c['id']} {c['score']:.2f}" for c in detection['candidates']))
-    else:
-        lines.append('Rule-based classifier: no library entry scored above its floor.')
     return '\n'.join(lines)
+
+
+def stills(cameras, limit=MAX_STILLS):
+    """Camera snapshots for the model, shared across cameras so every angle is seen."""
+    per = max(1, limit // max(1, len(cameras)))
+    return [s for c in cameras for s in (c.get('snapshots') or [])[-per:]]
 
 
 def _spec_posture(spec):
@@ -247,9 +248,9 @@ def parse(text):
 
 
 class LlmDetector:
-    """Synchronous (runs inside the analysis threadpool). ``None`` means: no opinion, keep the rule result."""
+    """Synchronous (runs inside the analysis threadpool). ``None`` means: no opinion, the exercise stays undetermined."""
 
-    def __init__(self, api_key, base_url, model, timeout=8.0):
+    def __init__(self, api_key, base_url, model, timeout=15.0):
         self.api_key, self.base_url, self.model, self.timeout = api_key, base_url, model, timeout
         self._sessions: dict[str, tuple[float, dict]] = {}
 
@@ -276,13 +277,21 @@ class LlmDetector:
         name = lambda r: (r['newExercise'] or {}).get('name', '').lower()
         return a['exerciseId'] == b['exerciseId'] and name(a) == name(b)
 
-    def complete(self, summary, library):
+    def complete(self, summary, library, images=()):
         from openai import APIStatusError, OpenAI
         client = OpenAI(api_key=self.api_key, base_url=self.base_url, timeout=self.timeout,
                         default_headers={'HTTP-Referer': 'https://base44.com', 'X-Title': 'FormFit AI'})
         user = (f"MOVEMENT\n{summary}\n\nLIBRARY\n{catalog(library)}\n\nFAMILIES: {', '.join(FAMILIES)}\nMUSCLES: {', '.join(MUSCLE_IDS)}")
+        # Photos first, under an explicit label — placed after a long text block the model tends
+        # to overlook them and answer "no photos".
+        content = ([{'type': 'text', 'text': f'PHOTOS: {len(images)} camera stills from this set, oldest first:'}]
+                   + [{'type': 'image_url', 'image_url': {'url': url, 'detail': 'low'}} for url in images]
+                   + [{'type': 'text', 'text': user}]) if images else user
         request = {'model': self.model, 'max_tokens': 450, 'temperature': 0,
-                   'messages': [{'role': 'system', 'content': SYSTEM}, {'role': 'user', 'content': user}]}
+                   'messages': [{'role': 'system', 'content': SYSTEM}, {'role': 'user', 'content': content}]}
+        if images and self.model.startswith('openai/'):
+            # OpenRouter's Azure route for OpenAI models silently drops images ("no photos").
+            request['extra_body'] = {'provider': {'order': ['openai'], 'allow_fallbacks': False}}
         try:
             try:
                 completion = client.chat.completions.create(**request, response_format={'type': 'json_object'})
@@ -304,8 +313,8 @@ class LlmDetector:
             if cached:
                 return cached
         try:
-            result = self.complete(describe(cameras, detection, segments_fn), library)
-        except Exception as error:  # noqa: BLE001 — the rule result is always a valid fallback
+            result = self.complete(describe(cameras, detection, segments_fn), library, stills(cameras))
+        except Exception as error:  # noqa: BLE001 — an unavailable model leaves the exercise undetermined
             result = {'exerciseId': None, 'newExercise': None, 'confidence': 0, 'reason': f'unavailable: {type(error).__name__}'}
         if result['exerciseId'] and result['exerciseId'] not in library:
             result = {**result, 'exerciseId': None}

@@ -1,8 +1,10 @@
-"""Versioned, bounded landmark contract. Raw video never leaves the device."""
-from typing import Literal
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+"""Versioned, bounded landmark contract. Raw video never leaves the device — only landmarks plus a
+few downscaled stills that the detection model looks at and that are never stored."""
+from typing import Annotated, Literal
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 View = Literal['auto', 'side', 'frontal', 'oblique']
+Snapshot = Annotated[str, StringConstraints(max_length=300_000, pattern=r'^data:image/(jpeg|webp);base64,[A-Za-z0-9+/=]+$')]
 
 
 class Landmark(BaseModel):
@@ -27,6 +29,8 @@ class CameraStream(BaseModel):
     # Common timeline = clip timestamp + offset; required calibration for separate clips.
     offsetMs: float = Field(default=0, ge=-3_600_000, le=3_600_000)
     frames: list[Frame] = Field(min_length=1, max_length=2700)
+    # Camera stills spread across the set, so the detection model can see the equipment.
+    snapshots: list[Snapshot] = Field(default_factory=list, max_length=4)
 
     @model_validator(mode='after')
     def increasing_time(self):

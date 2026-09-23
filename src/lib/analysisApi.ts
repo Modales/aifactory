@@ -8,7 +8,7 @@ export interface ExerciseLibrary { exercises: LibraryExercise[]; families: Recor
 export const POPULAR: ExerciseId[] = ['squat', 'deadlift', 'bench', 'ohp', 'curl', 'lunge', 'pushup', 'pullup', 'bent_over_row', 'lateral_raise']
 export type CameraView = 'auto' | 'side' | 'frontal' | 'oblique'
 export interface AnalysisFrame { timestampMs: number; landmarks: Pick<PoseLandmark,'x' | 'y' | 'visibility'>[] }
-export interface CameraStream { cameraId: string; view: CameraView; aspectRatio: number; offsetMs: number; frames: AnalysisFrame[] }
+export interface CameraStream { cameraId: string; view: CameraView; aspectRatio: number; offsetMs: number; frames: AnalysisFrame[]; snapshots?: string[] }
 export interface FormCheck { name: string; cameraId: string; view: string; value: number; units: string; target: string; score: number; passed: boolean; cue: string }
 export interface AnalysisRep { index: number; startMs: number; endMs: number; durationSeconds: number; score: number | null; checks: FormCheck[]; feedback: string[] }
 export interface FocusArea { name: string; failedReps: number; totalReps: number; average: number; units: string; target: string; passed: boolean; cue: string }

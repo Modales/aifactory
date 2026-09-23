@@ -8,9 +8,19 @@ export type { CaptureConfig }
 /** Off-frame joints come back far outside the image (even NaN); keep them finite and in the server's accepted range. */
 const clampCoord = (v: number) => Number.isFinite(v) ? Math.min(5, Math.max(-5, v)) : -5
 const BONES = [[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28]]
-interface Props { config: CaptureConfig; recording: boolean; showHeading?: boolean; epoch: number; overlapStart: number; onFrame: (id: string, frame: AnalysisFrame, aspect: number) => void; onReady: (id: string, ready: boolean, problem?: string) => void; onEnded: (id: string) => void }
+const SNAPSHOT_EVERY_MS = 2500
+const SNAPSHOT_WIDTH = 512
+/** Downscaled JPEG still so the detection AI can see the equipment. */
+function snapshot(video: HTMLVideoElement) {
+  const canvas = document.createElement('canvas')
+  canvas.width = SNAPSHOT_WIDTH
+  canvas.height = Math.round(SNAPSHOT_WIDTH * video.videoHeight / video.videoWidth)
+  canvas.getContext('2d')?.drawImage(video, 0, 0, canvas.width, canvas.height)
+  return canvas.toDataURL('image/jpeg', .7)
+}
+interface Props { config: CaptureConfig; recording: boolean; showHeading?: boolean; epoch: number; overlapStart: number; onFrame: (id: string, frame: AnalysisFrame, aspect: number) => void; onSnapshot: (id: string, image: string) => void; onReady: (id: string, ready: boolean, problem?: string) => void; onEnded: (id: string) => void }
 
-export default function CaptureView({ config, recording, showHeading = true, epoch, overlapStart, onFrame, onReady, onEnded }: Props) {
+export default function CaptureView({ config, recording, showHeading = true, epoch, overlapStart, onFrame, onSnapshot, onReady, onEnded }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const estimatorRef = useRef<MediaPipePoseEstimator | null>(null)
@@ -51,7 +61,7 @@ export default function CaptureView({ config, recording, showHeading = true, epo
     const video = videoRef.current
     if (!video || !ready) return
     if (!recording) { if (config.kind==='upload') video.pause(); return }
-    let cancelled = false, pending = false, lastAt = 0
+    let cancelled = false, pending = false, lastAt = 0, lastShot = -Infinity
     lastMedia.current = -1
     if (config.kind==='upload') {
       const seekTo = Math.max(0,(overlapStart-config.offsetMs)/1000)
@@ -75,11 +85,12 @@ export default function CaptureView({ config, recording, showHeading = true, epo
         if(result.poses.length!==1) {setMessage(result.poses.length ? 'Multiple people visible · scoring paused' : 'No athlete visible · scoring paused');return}
         const landmarks=result.poses[0].landmarks
         onFrame(config.id,{timestampMs,landmarks:landmarks.map(p=>({x:clampCoord(p.x),y:clampCoord(p.y),visibility:Math.min(1,Math.max(0,p.visibility??0))}))},video.videoWidth/video.videoHeight)
-        setCount(c=>c+1);setMessage('Capturing landmarks · video stays on this device')
+        if(now-lastShot>=SNAPSHOT_EVERY_MS) {lastShot=now;onSnapshot(config.id,snapshot(video))}
+        setCount(c=>c+1);setMessage('Capturing · the AI sees a few stills to identify the exercise')
         if(canvas && context) {context.strokeStyle='#fc4c02';context.lineWidth=3; for(const [a,b] of BONES) {if((landmarks[a].visibility??0)<.55 || (landmarks[b].visibility??0)<.55) continue; context.beginPath();context.moveTo(landmarks[a].x*canvas.width,landmarks[a].y*canvas.height);context.lineTo(landmarks[b].x*canvas.width,landmarks[b].y*canvas.height);context.stroke()}}
       } catch(e) { if(!cancelled) setMessage((e as Error).message) } finally {pending=false}
     },40)
     return ()=>{cancelled=true;window.clearInterval(timer);if(config.kind==='upload')video.pause()}
-  },[recording,ready,epoch,overlapStart,config.id,config.kind,config.offsetMs,onFrame,onEnded])
+  },[recording,ready,epoch,overlapStart,config.id,config.kind,config.offsetMs,onFrame,onSnapshot,onEnded])
   return <div className="capture-view">{showHeading && <div className="capture-view-heading">{config.kind==='camera'?<Camera size={15}/>:<Video size={15}/>}<strong>{config.id}</strong><span>{config.view==='auto'?'Estimate view':`${config.view} view`}</span></div>}<div className="capture-video"><video ref={videoRef} muted playsInline onEnded={()=>onEnded(config.id)} /><canvas ref={canvasRef}/><span className="capture-frame-count">{count} frames</span></div><p role="status">{message}</p></div>
 }

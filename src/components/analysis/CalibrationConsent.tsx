@@ -33,7 +33,7 @@ export default function CalibrationConsent() {
       <p className="record-section-title" id="calibration-title">Help improve detection — terms</p>
       <ul className="calibration-terms">
         <li>If you agree, every set you finish stores the <strong>body-point positions</strong> (33 joint coordinates per frame), the chosen or confirmed exercise, and the detected result.</li>
-        <li><strong>No video or images</strong> are ever stored or uploaded — the camera feed stays on your device.</li>
+        <li><strong>No video or images</strong> are ever stored. Video stays on your device; to identify the exercise, a few small stills are sent to the AI model (OpenAI via OpenRouter) and discarded.</li>
         <li>The data is used only to test and calibrate exercise detection and rep counting in this app. It is not sold or shared with third parties.</li>
         <li>You can change your answer at any time. Choosing <em>No</em> deletes every set already stored.</li>
       </ul>

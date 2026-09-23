@@ -47,7 +47,7 @@ async def record_set(db: AsyncSession, user_id: str, payload: AnalysisRequest, r
         CalibrationRecordingRecord.user_id == user_id, CalibrationRecordingRecord.session_key == payload.sessionKey))
     record = found.scalar_one_or_none() or CalibrationRecordingRecord(user_id=user_id, session_key=payload.sessionKey)
     record.model_version = version
-    record.streams = [s.model_dump() for s in payload.streams]
+    record.streams = [s.model_dump(exclude={'snapshots'}) for s in payload.streams]   # body points only, never images
     record.confirmed_exercise = payload.confirmedExercise
     record.detected_exercise = result.get('exercise')
     record.rep_count = result.get('repCount', 0)

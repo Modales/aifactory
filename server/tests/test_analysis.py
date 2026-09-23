@@ -269,8 +269,10 @@ def test_llm_second_opinion_picks_a_library_exercise_when_rules_are_unsure():
     assert result['repCount'] == 2 and result['detectionNote'].startswith('knee')
     assert result['candidates'][0]['id'] == 'squat' and result['proposal'] is None
     assert calls[0][0] == 'set-1'
-    # Rules already confident → the model is never asked.
-    analyze(payload(), LIBRARY, lambda *a: pytest.fail('detector must not be consulted'))
+    # With a model configured it decides alone — even where the rules would have been confident.
+    asked = analyze(payload(), LIBRARY, lambda *a: {'exerciseId': 'lunge', 'newExercise': None, 'confidence': .9, 'reason': 'photo'})
+    assert asked['exercise'] == 'lunge' and asked['selectionSource'] == 'llm'
+    assert analyze(payload(), LIBRARY, lambda *a: None)['exercise'] is None
 
 
 def test_llm_second_opinion_proposes_a_new_exercise_and_counts_reps_provisionally():
@@ -295,13 +297,13 @@ def test_llm_detector_parses_and_caches_per_session(monkeypatch):
     assert LlmDetector(None, 'u', 'm')([], {}, LIBRARY, segments, 'k') is None
     detector = LlmDetector('key', 'u', 'm')
     answers = iter([{'exerciseId': 'nope', 'newExercise': None, 'confidence': .9, 'reason': 'a'}, {'exerciseId': 'squat', 'newExercise': None, 'confidence': .9, 'reason': 'b'}])
-    monkeypatch.setattr(detector, 'complete', lambda summary, library: next(answers))
+    monkeypatch.setattr(detector, 'complete', lambda summary, library, images=(): next(answers))
     cameras = [__import__('app.analysis.features', fromlist=['features']).features(payload().streams[0])]
     detection = {'exercise': None, 'confidence': 0, 'candidates': [], 'alternatives': []}
     first = detector(cameras, detection, LIBRARY, segments, 'set-9')
     assert first['exerciseId'] is None and first['confidence'] == .9          # unknown id is dropped, not trusted
     assert detector(cameras, detection, LIBRARY, segments, 'set-9') is first   # confident answers are cached per set
-    monkeypatch.setattr(detector, 'complete', lambda summary, library: (_ for _ in ()).throw(RuntimeError('boom')))
+    monkeypatch.setattr(detector, 'complete', lambda summary, library, images=(): (_ for _ in ()).throw(RuntimeError('boom')))
     assert detector(cameras, detection, LIBRARY, segments, 'other')['reason'].startswith('unavailable')
 
 
@@ -615,7 +617,7 @@ def test_llm_rechecks_an_early_answer_as_the_set_grows_then_settles():
     detector=LlmDetector('key','u','m')
     answers=iter(['squat','leg_press','leg_press'])
     calls=[]
-    def complete(summary,library):
+    def complete(summary,library,images=()):
         calls.append(summary)
         return {'exerciseId':next(answers),'newExercise':None,'confidence':.8,'reason':''}
     detector.complete=complete
@@ -696,3 +698,30 @@ def test_getting_into_position_is_trimmed_before_classifying():
     reps=[{'t':(6+i)*140,'knee':172,'elbow':v} for i,v in enumerate([170]*6+[170,120,80,75,120,165,170]*3)]   # brief plank hold, then reps
     window=active_window([{'rows':setup+reps}])[0]['rows']
     assert min(r['knee'] for r in window)==172   # the kneel-down no longer reads as knee movement
+
+
+def test_camera_stills_reach_the_model_but_not_the_report_or_dataset(monkeypatch):
+    from app.analysis.llm_detect import LlmDetector
+    still = 'data:image/jpeg;base64,' + 'A' * 40
+    stream = {**squat_stream(), 'snapshots': [still, still]}
+    request = AnalysisRequest.model_validate({'streams': [stream], 'sessionKey': 'photo-set'})
+    seen = []
+    detector = LlmDetector('key', 'u', 'm')
+    monkeypatch.setattr(detector, 'complete', lambda summary, library, images=(): seen.append(list(images)) or
+                        {'exerciseId': 'squat', 'newExercise': None, 'confidence': .9, 'reason': 'barbell on back'})
+    result = analyze(request, LIBRARY, detector)
+    assert seen and seen[0] == [still, still] and result['exercise'] == 'squat'
+    assert all('snapshots' not in v for v in result['views'])
+    import openai
+    from types import SimpleNamespace
+    sent = []
+    class Client:
+        def __init__(self, **kwargs):
+            create = lambda **kw: sent.append(kw['messages'][1]['content']) or SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{"exerciseId":"squat","confidence":0.9}'))])
+            self.chat = SimpleNamespace(completions=SimpleNamespace(create=create))
+        def close(self): pass
+    monkeypatch.setattr(openai, 'OpenAI', Client)
+    LlmDetector('key', 'http://x', 'm').complete('summary', LIBRARY, [still])
+    assert sent[0][0]['type'] == 'text' and sent[0][1] == {'type': 'image_url', 'image_url': {'url': still, 'detail': 'low'}}
+    with pytest.raises(ValidationError):
+        AnalysisRequest.model_validate({'streams': [{**squat_stream(), 'snapshots': ['https://evil/x.jpg']}]})
