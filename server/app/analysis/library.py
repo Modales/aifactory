@@ -118,6 +118,15 @@ ex('thruster', 'Thruster', 'squat', 'knee', FLEX, 150, 125,
     tempo(1.0, .6, 'Rep took {v}s — rushed. Reach a full squat before you press.')],
    {'quads': 88, 'glutes': 84, 'anterior_delts': 82, 'triceps_long': 66, 'triceps_lateral': 60, 'lateral_delts': 55, 'rectus_abdominis': 60, 'erector_spinae': 62})
 variant('jump_squat', 'Jump squat', 'squat', {'quads': 92, 'glutes': 90, 'calves': 70, 'hamstrings': 55, 'rectus_abdominis': 50})
+variant('smith_machine_squat', 'Smith machine squat', 'squat')
+variant('hack_squat', 'Hack squat', 'squat', {'quads': 97, 'glutes': 80, 'hip_adductors': 55, 'hamstrings': 38, 'calves': 30})
+# Machine: seated or reclined with the feet on a sled at or above hip height; the hips stay on the seat.
+ex('leg_press', 'Leg press', 'squat', 'knee', FLEX, 150, 120,
+   [('knee', 'range', 35, 140), ('hip', 'range', 15, 110), ('hipAnkle', 'median', -2, .5), ('trunk', 'median', 0, 80), still_elbows],
+   [depth('Sled depth', 95, 30, 'Knees bent to {v}° — a full-range press.', 'Knees only bent to {v}°, {d}° short of {t}°. Lower the sled until the knees reach about 90°.'),
+    lockout('Press to extension', 155, 25, 'Legs extended to {v}° at the top.', 'Legs finished at {v}°, {d}° short of extension. Press until the legs are straight — without snapping the knees.'),
+    tempo(1.5, 1.0, 'Rep took {v}s — fast. Lower the sled for about 2 seconds.')],
+   {'quads': 95, 'glutes': 80, 'hip_adductors': 55, 'hamstrings': 42, 'calves': 25})
 
 # ─── Lunges & single leg ────────────────────────────────────────────────────────────────────────
 ex('lunge', 'Lunge', 'lunge', 'knee', FLEX, 150, 125,
@@ -226,6 +235,14 @@ ex('incline_bench', 'Incline bench press', 'horizontal_press', 'elbow', FLEX, 15
     tempo(1.2, .8, 'Rep took {v}s — fast. Lower under control.')],
    {'upper_chest': 95, 'mid_chest': 72, 'anterior_delts': 78, 'triceps_lateral': 70, 'triceps_long': 66})
 variant('incline_dumbbell_press', 'Incline dumbbell press', 'incline_bench')
+# Machine: seated upright, back on the pad, handles pushed forward from chest height.
+ex('chest_press', 'Machine chest press', 'horizontal_press', 'elbow', EXTEND, 100, 140,
+   [('elbow', 'range', 40, 130), ('elbow', 'start', 50, 125), seated, ('trunk', 'median', 0, 40), ('wristY', 'median', -.8, .5), ('reach', 'range', .4, 1.8), ('shoulder', 'median', 40, 110)],
+   [depth('Press to extension', 155, 25, 'Elbows extended to {v}° — full press.', 'Elbows only extended to {v}°, {d}° short of {t}°. Press the handles until the arms are straight.', direction='min'),
+    lockout('Return to the chest', 95, 30, 'Elbows returned to {v}° — handles back to the chest.', 'Elbows only returned to {v}°, {d}° short of {t}°. Let the handles come back to chest level each rep.', direction='max'),
+    tempo(1.2, .8, 'Rep took {v}s — quick. Control the handles back for about 2 seconds.')],
+   {'mid_chest': 92, 'lower_chest': 70, 'upper_chest': 60, 'anterior_delts': 64, 'triceps_lateral': 70, 'triceps_long': 60})
+variant('cable_chest_press', 'Cable chest press', 'chest_press')
 ex('chest_fly', 'Chest fly', 'horizontal_press', 'shoulder', FLEX, 80, 55,
    [('shoulder', 'range', 30, 110), ('elbow', 'range', 0, 32), horizontal, ('wristY', 'median', .1, 1.8), lying],
    [depth('Stretch at the bottom', 55, 30, 'Arms opened to a {v}° shoulder angle.', 'Arms only opened to {v}°, {d}° short of {t}°. Open the arms wider for the stretch.'),
@@ -270,6 +287,7 @@ ex('dips', 'Dips', 'pushup', 'elbow', FLEX, 150, 115,
     tempo(1.5, 1.0, 'Rep took {v}s — quick. Lower slowly to protect the shoulders.')],
    {'lower_chest': 88, 'triceps_lateral': 88, 'triceps_long': 84, 'anterior_delts': 66, 'mid_chest': 60})
 variant('bench_dips', 'Bench dips', 'dips', {'triceps_lateral': 90, 'triceps_long': 86, 'anterior_delts': 60, 'lower_chest': 55})
+variant('assisted_dip', 'Assisted dip machine', 'dips')
 
 # ─── Vertical pulling ──────────────────────────────────────────────────────────────────────────
 ex('pullup', 'Pull-up', 'vertical_pull', 'elbow', FLEX, 150, 100,

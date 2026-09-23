@@ -65,6 +65,16 @@ def frame_features(p, side, ratio):
         'overhead': (point(w)[1] < shoulder[1] - torso*.2) if seen(s, w) else None,
         'footSplit': norm(abs(point(a)[0]-point(oa)[0])) if seen(a, oa) else None,              # side view: feet apart front-to-back (lunge) vs together (squat)
         'hipAsym': abs(hip_angle-joint(os_, oh, ok)) if hip_angle is not None and joint(os_, oh, ok) is not None else None,
+        # Raw image positions (aspect-corrected) — used only to describe how the body travels
+        # through the frame: hips pinned to a seat/pad vs moving through space.
+        'torsoLen': torso if torso_seen else None,
+        # Signed lean: + shoulders ahead of the hips in the facing direction (hinged forward),
+        # − behind them (reclined against a pad or seat back). Facing comes from the nose.
+        'leanFwd': norm((shoulder[0]-hip[0]) * (1 if point(0)[0] > shoulder[0] else -1))
+                   if torso_seen and seen(0) and abs(point(0)[0]-shoulder[0]) > .15 * torso else None,
+        'hipPx': hip[0] if seen(h) else None, 'hipPy': hip[1] if seen(h) else None,
+        'wristPx': point(w)[0] if seen(w) else None, 'wristPy': point(w)[1] if seen(w) else None,
+        'anklePx': point(a)[0] if seen(a) else None, 'anklePy': point(a)[1] if seen(a) else None,
     }
     # Frontal-view geometry (both sides needed).
     row['width'] = abs(point(11)[0]-point(12)[0]) / torso if seen(11, 12, 23, 24) else None

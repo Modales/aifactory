@@ -550,3 +550,76 @@ def test_learn_from_rest_heavy_set_derives_gates_that_still_count_reps():
     camera=featurize(payload(streams=[stream]).streams[0])
     found,signal=count_reps(spec,camera)
     assert len(found)==2 and signal=='knee'
+
+
+def leg_press_stream(seconds=16):
+    """Seated, reclined against a pad, hips pinned; feet on a sled at hip height push away and return."""
+    from math import atan2, hypot as _h
+    frames=[]; L=.25; hip=(.4,.6); shoulder=(.28,.4); nose=(.33,.3)
+    for i in range(int(seconds*5)+1):
+        d=(1-cos(i/40*2*pi))/2
+        k=(170-85*d)*pi/180
+        span=2*L*sin(k/2); phi=10*pi/180
+        ankle=(hip[0]+span*cos(phi),hip[1]-span*sin(phi))
+        mid=((hip[0]+ankle[0])/2,(hip[1]+ankle[1])/2)
+        ux,uy=(ankle[0]-hip[0])/span,(ankle[1]-hip[1])/span
+        up=L*cos(k/2)
+        knee=(mid[0]+uy*up,mid[1]-ux*up)
+        elbow=(.36,.5); wrist=(.42,.56); foot=(ankle[0]+.02,ankle[1]-.06)
+        p=[{'x':.5,'y':.5,'visibility':.99} for _ in range(33)]
+        p[0]={'x':nose[0],'y':nose[1],'visibility':.99}
+        for side in (0,1):
+            for index,xy in ((11,shoulder),(13,elbow),(15,wrist),(23,hip),(25,knee),(27,ankle),(31,foot)):
+                p[index+side]={'x':xy[0]+side*.01,'y':xy[1],'visibility':.99}
+        frames.append({'timestampMs':i*200,'landmarks':p})
+    return {'cameraId':'side','view':'side','aspectRatio':1,'offsetMs':0,'frames':frames}
+
+
+def test_machine_leg_press_is_recognised_and_described_as_pinned():
+    from app.analysis.features import features as featurize
+    from app.analysis.llm_detect import describe
+    camera=featurize(AnalysisRequest.model_validate({'streams':[leg_press_stream()]}).streams[0])
+    detection=classify([camera])
+    assert detection['exercise']=='leg_press'
+    text=describe([camera],detection,segments)
+    # The cues a model needs to tell a machine from a free-weight movement.
+    assert 'hips fixed in place' in text and 'feet travel' in text and 'reclined' in text
+    assert 'Joint visibility: knee 100%' in text and 'At each end of the movement: bent knee' in text
+    result=analyze(AnalysisRequest.model_validate({'streams':[leg_press_stream()]}))
+    assert result['exercise']=='leg_press' and result['repCount']>=2
+
+
+def test_occluded_joints_are_reported_to_the_model_not_dropped():
+    from app.analysis.llm_detect import describe
+    rows=[dict(r,knee=None,otherKnee=None) if i%3 else r for i,r in enumerate(synthetic_rows('squat'))]
+    text=describe([{'id':'c','view':'side','rows':rows}],{'candidates':[]},segments)
+    assert 'knee 35%' in text and 'often hidden' in text
+    assert 'knee ' in text.split('Angles: ')[1].split('\n')[0]   # partial knee still reported as a band
+
+
+def test_llm_catalog_describes_what_each_entry_looks_like():
+    from app.analysis.llm_detect import catalog
+    text=catalog(LIBRARY)
+    assert 'leg_press: Leg press — knee bends then straightens, feet raised/reclined' in text
+    assert 'lat_pulldown: Lat pulldown — elbow bends then straightens, seated' in text
+    assert 'machine_row: Machine row (variant of seated_row)' in text
+
+
+def test_llm_rechecks_an_early_answer_as_the_set_grows_then_settles():
+    from app.analysis.features import features as featurize
+    from app.analysis.llm_detect import LlmDetector
+    detector=LlmDetector('key','u','m')
+    answers=iter(['squat','leg_press','leg_press'])
+    calls=[]
+    def complete(summary,library):
+        calls.append(summary)
+        return {'exerciseId':next(answers),'newExercise':None,'confidence':.8,'reason':''}
+    detector.complete=complete
+    full=featurize(AnalysisRequest.model_validate({'streams':[leg_press_stream(40)]}).streams[0])
+    window=lambda s:[{**full,'rows':[r for r in full['rows'] if r['t']<=s*1000]}]
+    det={'exercise':None,'confidence':0,'candidates':[],'alternatives':[]}
+    assert detector(window(3),det,LIBRARY,segments,'s')['exerciseId']=='squat'
+    assert detector(window(5),det,LIBRARY,segments,'s')['exerciseId']=='squat'      # not enough new evidence yet
+    assert detector(window(10),det,LIBRARY,segments,'s')['exerciseId']=='leg_press' # grown → asked again, corrected
+    assert detector(window(17),det,LIBRARY,segments,'s')['exerciseId']=='leg_press' # grown again → confirmed
+    assert detector(window(40),det,LIBRARY,segments,'s')['exerciseId']=='leg_press' and len(calls)==3  # settled

@@ -459,8 +459,7 @@ def analyze(payload: AnalysisRequest, library=None, detector=None, coach=None):
     coach_notes = None
     if spec and coach is not None and (reps or duration >= 5):
         from .llm_detect import describe
-        summary = describe(cameras, detection, segments) + '\nJoint visibility: ' + ', '.join(
-            f"{k} {round(coverage(c['rows'], k) * 100)}%" for c in cameras for k in ('elbow', 'shoulder', 'hip', 'knee', 'trunk'))
+        summary = describe(cameras, detection, segments)   # includes per-camera joint visibility
         coach_notes = coach(spec['name'], summary, reps, payload.sessionKey, duration)
     return {'modelVersion': VERSION, 'exercise': exercise, 'exerciseName': name,
             'family': spec['family'] if spec else None, 'familyName': FAMILIES.get(spec['family'], spec['family']) if spec else None,
