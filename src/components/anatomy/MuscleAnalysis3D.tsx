@@ -51,6 +51,7 @@ export default function MuscleAnalysis3D({ summary, title = 'Muscle analysis', i
         <div>{(['surface', 'deep', 'all'] as AnatomyLayer[]).map(value => <button key={value} aria-pressed={layer === value} onClick={() => setLayer(value)}>{value === 'all' ? 'All muscles' : value}</button>)}</div>
         <label><input type="checkbox" checked={showSkeleton} onChange={e => setShowSkeleton(e.target.checked)} /> Skeleton context</label>
       </div>
+      {(selectedPart || current) && progress >= 100 && !error && <div className="anatomy-focus-tag" key={selectedPart?.id ?? current?.id}><i />Highlighting<strong>{selectedPart?.name ?? current?.name}</strong></div>}
       <p className="anatomy-gesture">Drag to rotate · scroll to zoom · click any structure</p>
     </div>
     <aside className="anatomy-story">

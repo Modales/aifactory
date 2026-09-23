@@ -27,7 +27,7 @@ function WorkoutTelemetry({ sessions }: { sessions: HistoryItem[] }) {
     return <section key={log.sessionId} className="border-2 border-foreground bg-background">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b-2 border-foreground bg-foreground px-4 py-3 text-background"><div><p className="mono-data text-[9px] tracking-[0.2em] text-primary">SET {index + 1}</p><h3 className="text-lg font-black uppercase">{log.exerciseName}</h3></div><p className="mono-data text-[10px]">{session.totalReps} REPS · {Math.round(session.durationSeconds)} SEC · {Math.round(session.avgFormScore)} FORM</p></div>
       <div className="space-y-4 p-4">
-        {log.muscleLoad.entries.length > 0 && <MuscleHeatmap summary={log.muscleLoad} compact />}
+        {log.muscleLoad.entries.length > 0 && <MuscleHeatmap summary={log.muscleLoad} social />}
         {Object.keys(log.flawCounts).length > 0 && <div className="flex flex-wrap gap-2">{Object.entries(log.flawCounts).map(([flaw, count]) => <span key={flaw} className="mono-data border-2 border-foreground px-2 py-1 text-[10px]">{flaw.toUpperCase()} ×{count}</span>)}</div>}
         {log.analysis ? <AnalysisResults report={log.analysis} working={false} /> : <ExerciseSummaryTable reps={log.reps} />}
       </div>

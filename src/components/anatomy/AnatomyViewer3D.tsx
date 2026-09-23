@@ -93,20 +93,29 @@ export default function AnatomyViewer3D({ atlas, onSelect, onProgress, onError, 
     const pickers: (THREE.Mesh | undefined)[] = []
     const bounds = atlas.parts.map(part => new THREE.Box3(new THREE.Vector3().fromArray(part.bounds[0]), new THREE.Vector3().fromArray(part.bounds[1])))
 
+    // 1 while a story chapter or selection is isolated: everything else is dimmed (alpha channel = focused).
+    const focusActive = { value: 0 }
     const materialFor = (system: string) => {
       const material = new THREE.MeshStandardMaterial({ color: system === 'skeletal' ? '#d8d0b8' : '#8f3f36', metalness: .02, roughness: .67, side: THREE.DoubleSide })
       material.onBeforeCompile = shader => {
         shader.uniforms.partState = { value: stateTexture }
         shader.uniforms.stateWidth = { value: textureWidth }
-        shader.vertexShader = `attribute float partIndex; uniform sampler2D partState; uniform float stateWidth; varying vec3 partStatus;\n${shader.vertexShader}`
-        shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\npartStatus = texture2D(partState, vec2((partIndex + 0.5) / stateWidth, 0.5)).rgb;')
-        shader.fragmentShader = `varying vec3 partStatus;\n${shader.fragmentShader}`
+        shader.uniforms.focusActive = focusActive
+        shader.vertexShader = `attribute float partIndex; uniform sampler2D partState; uniform float stateWidth; varying vec4 partStatus;\n${shader.vertexShader}`
+        shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\npartStatus = texture2D(partState, vec2((partIndex + 0.5) / stateWidth, 0.5));')
+        shader.fragmentShader = `varying vec4 partStatus; uniform float focusActive;\n${shader.fragmentShader}`
         shader.fragmentShader = shader.fragmentShader.replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\nif (partStatus.r < 0.5 / 255.0) discard;')
         shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
           float demand = partStatus.g;
+          float focused = partStatus.a * focusActive;
           vec3 warm = mix(vec3(0.95, 0.48, 0.12), vec3(0.61, 0.08, 0.06), demand);
           diffuseColor.rgb = mix(diffuseColor.rgb, warm, step(0.01, demand) * (0.58 + demand * 0.38));
+          vec3 muted = vec3(dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11))) * 0.32;
+          diffuseColor.rgb = mix(diffuseColor.rgb, muted, focusActive * (1.0 - partStatus.a));
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0, 0.72, 0.18), focused * 0.6);
           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0, 0.84, 0.28), partStatus.b * 0.72);`)
+        shader.fragmentShader = shader.fragmentShader.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+          totalEmissiveRadiance += vec3(0.42, 0.2, 0.02) * partStatus.a * focusActive;`)
       }
       materials.push(material)
       return material
@@ -204,9 +213,12 @@ export default function AnatomyViewer3D({ atlas, onSelect, onProgress, onError, 
       if (disposed) return
       frame = requestAnimationFrame(animate)
       const current = latest.current
-      const signature = `${current.layer}|${current.showSkeleton}|${current.selectedId}|${[...current.scores].map(([id, score]) => `${id}:${score}`).join(',')}`
+      const signature = `${current.layer}|${current.showSkeleton}|${current.selectedId}|${current.focusIds.join(',')}|${[...current.scores].map(([id, score]) => `${id}:${score}`).join(',')}`
       if (signature !== lastState) {
+        const focus = new Set(current.selectedId ? [current.selectedId] : current.focusIds)
+        focusActive.value = focus.size ? 1 : 0
         atlas.parts.forEach((part, index) => {
+          stateData[index * 4 + 3] = focus.has(part.id) ? 255 : 0
           const muscle = part.system === 'muscular'
           const visible = muscle ? visibleMuscle(part.name, current.layer) : current.showSkeleton && part.system === 'skeletal'
           stateData[index * 4] = visible ? 255 : 0
