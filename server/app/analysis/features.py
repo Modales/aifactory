@@ -39,7 +39,7 @@ def frame_features(p, side, ratio):
 
     s, e, w, h, k, a, f = (i+side for i in (11, 13, 15, 23, 25, 27, 31))
     o = 1 - side
-    os_, oe, ow, oh, ok, oa = (i+o for i in (11, 13, 15, 23, 25, 27))
+    os_, oe, ow, oh, ok, oa, of_ = (i+o for i in (11, 13, 15, 23, 25, 27, 31))
     shoulder, hip = point(s), point(h)
     torso = max(hypot(shoulder[0]-hip[0], shoulder[1]-hip[1]), .01)
     torso_seen = seen(s, h)
@@ -52,6 +52,8 @@ def frame_features(p, side, ratio):
         'shoulder': joint(e, s, h),               # arm hanging ≈ 15°, forward/horizontal ≈ 90°, overhead ≈ 170°
         'ankle': joint(k, a, f),                  # plantar-flexion opens this angle
         'otherKnee': other_knee, 'otherElbow': other_elbow, 'otherHip': joint(os_, oh, ok),
+        # Opposite-side angles let rep counting fail over when the dominant side is occluded.
+        'otherShoulder': joint(oe, os_, oh), 'otherAnkle': joint(ok, oa, of_),
         'kneeAsym': abs(knee-other_knee) if knee is not None and other_knee is not None else None,
         'trunk': degrees(acos(min(1, abs(shoulder[1]-hip[1])/torso))) if torso_seen else None,   # 0 upright, 90 horizontal
         'wristY': norm(shoulder[1]-point(w)[1]) if seen(s, w) else None,                        # + wrist above shoulder
@@ -97,6 +99,58 @@ def values(rows, key):
 def percentile(items, share):
     ordered = sorted(items)
     return ordered[int((len(ordered) - 1) * share)]
+
+
+def extrema_envelope(rows, key, min_range):
+    """(lo, hi) envelope of a signal's alternating prominent extrema, or None.
+
+    Frame-count percentiles drift toward the rest position in rest-heavy sets — stand still
+    long enough and p10/p90 both read "standing", so gates derived from them never open. Every
+    rep contributes exactly one high and one low extremum no matter how long the rests are, so
+    gates derived from extrema stay honest. Single-frame spikes are absorbed by the same
+    trailing median-of-3 smoothing the segmenter uses; swings smaller than ``min_range`` are
+    ignored, and the trailing (unconfirmed) extreme still counts, so one partial rep is enough.
+    """
+    items = [r[key] for r in rows if r.get(key) is not None]
+    if len(items) < 5:
+        return None
+    sm = [median(items[max(0, i - 2):i + 1]) for i in range(len(items))]
+    extrema = []                        # confirmed alternating extrema, (kind, value); kind +1 high, -1 low
+    ext = run_hi = run_lo = sm[0]       # ext = extreme of the current leg
+    trend = 0                           # +1 rising leg, -1 falling leg, 0 undecided
+    for v in sm[1:]:
+        run_hi, run_lo = max(run_hi, v), min(run_lo, v)
+        if trend == 0:
+            # No leg yet: wait for the first real swing, then lock the start side — otherwise a
+            # set that begins by descending would lose its starting high before it confirms.
+            if run_hi - run_lo >= min_range:
+                if abs(v - run_lo) <= abs(v - run_hi):
+                    extrema.append((1, run_hi))
+                    trend, ext = -1, v
+                else:
+                    extrema.append((-1, run_lo))
+                    trend, ext = 1, v
+        elif trend > 0:
+            if v >= ext:
+                ext = v
+            elif ext - v >= min_range:  # fell min_range from the running high: the high is confirmed
+                extrema.append((1, ext))
+                trend, ext = -1, v
+        else:
+            if v <= ext:
+                ext = v
+            elif v - ext >= min_range:  # rose min_range from the running low: the low is confirmed
+                extrema.append((-1, ext))
+                trend, ext = 1, v
+    if not extrema:
+        return None
+    extrema.append((trend, ext))        # trailing leg: a partial rep still informs the gates
+    highs = [v for kind, v in extrema if kind == 1]
+    lows = [v for kind, v in extrema if kind == -1]
+    if not highs or not lows:
+        return None
+    lo, hi = median(lows), median(highs)
+    return (lo, hi) if hi - lo >= min_range else None
 
 
 def stat(rows, key, name, coverage=.6):

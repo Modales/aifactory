@@ -57,15 +57,20 @@ class LlmCoach:
         return bool(self.api_key)
 
     def complete(self, exercise_name, summary, reps):
-        from openai import OpenAI
+        from openai import APIStatusError, OpenAI
         client = OpenAI(api_key=self.api_key, base_url=self.base_url, timeout=self.timeout,
                         default_headers={'HTTP-Referer': 'https://base44.com', 'X-Title': 'FormFit AI'})
         user = f"EXERCISE: {exercise_name}\n\nMEASUREMENTS\n{summary}\n\n{reps_summary(reps)}"
+        request = {'model': self.model, 'max_tokens': 260, 'temperature': 0.2,
+                   'messages': [{'role': 'system', 'content': SYSTEM}, {'role': 'user', 'content': user}]}
         try:
-            completion = client.chat.completions.create(
-                model=self.model, max_tokens=260, temperature=0.2,
-                messages=[{'role': 'system', 'content': SYSTEM}, {'role': 'user', 'content': user}],
-                response_format={'type': 'json_object'})
+            try:
+                completion = client.chat.completions.create(**request, response_format={'type': 'json_object'})
+            except APIStatusError as error:
+                if error.status_code != 400:
+                    raise
+                # Some models reject response_format; the prompt still demands a JSON object.
+                completion = client.chat.completions.create(**request)
         finally:
             client.close()
         return parse(completion.choices[0].message.content or '{}')

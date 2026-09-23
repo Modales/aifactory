@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
+from ..activity.service import user_library
 from ..analysis.schemas import AnalysisRequest, TeachExerciseRequest
 from ..analysis.engine import PROPOSED, analyze, learn_from, VERSION
 from ..analysis.library import FAMILIES, LIBRARY, MUSCLE_IDS, catalog
@@ -11,16 +11,6 @@ from ..muscle_load import NAMES as MUSCLE_NAMES
 from ..orm import AnalysisRecord, CustomExerciseRecord, UserRecord
 
 router = APIRouter(prefix='/api/analysis', tags=['analysis'])
-
-
-async def user_library(db: AsyncSession, user: UserRecord | None) -> dict[str, dict]:
-    """Built-in specs plus this user's taught exercises, keyed by id."""
-    library = dict(LIBRARY)
-    if user is not None:
-        rows = (await db.execute(select(CustomExerciseRecord).where(CustomExerciseRecord.user_id == user.id))).scalars()
-        for record in rows:
-            library[record.id] = record.spec
-    return library
 
 
 @router.get('/capabilities')

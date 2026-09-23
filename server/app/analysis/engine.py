@@ -4,12 +4,12 @@ No LLM decides scores. Missing landmarks, ambiguous views and incomplete reps ab
 Every exercise — built-in or taught by the athlete — is a spec from ``library.py``:
 the classifier scores how well the observed motion statistics fit each spec's signature,
 the segmenter counts extended→flexed→extended (or the reverse) cycles of the spec's primary
-joint, and each rep is graded 0–100 on the spec's templated checks with cues that quote the
-measured angle. Multiple views contribute independent checks on an aligned timeline; this is
+joint — failing over to the opposite-side joint when the dominant side is occluded — and each
+rep is graded 0–100 on the spec's templated checks with cues that quote the measured angle. Multiple views contribute independent checks on an aligned timeline; this is
 NOT uncalibrated 3D triangulation.
 """
 from statistics import median
-from .features import angle, features, stat, values, percentile  # noqa: F401 (angle re-exported for tests)
+from .features import angle, extrema_envelope, features, stat, values, percentile  # noqa: F401 (angle re-exported for tests)
 from .library import DEFAULT_SCALE, FAMILIES, LIBRARY, SCALE
 from .schemas import AnalysisRequest
 
@@ -30,21 +30,43 @@ def fit(value, lo, hi, scale):
     return max(0.0, 1 - distance / scale)
 
 
+def _stat2(rows, key, name):
+    """A signal's statistic, falling back to the opposite-side twin when the dominant side is occluded."""
+    value = stat(rows, key, name)
+    if value is None and key in OTHER_SIDE:
+        value = stat(rows, OTHER_SIDE[key], name)
+    return value
+
+
 def match(spec, camera):
-    """How well one camera's observed motion fits a spec's signature (0–1). None = cannot judge."""
+    """How well one camera's observed motion fits a spec's signature (0–1). None = cannot judge.
+
+    Only visible evidence scores: unseen bands are excluded from the mean and the floor instead
+    of voting a flat 0.5, and the result is discounted by how many bands were visible at all
+    (capped at six). The primary joint's bands weigh double — they define the movement. Fewer
+    than three visible bands is not detection, it is guessing: abstain and let the LLM or the
+    athlete decide.
+    """
     rows = camera['rows']
     fits = []
     for key, name, lo, hi, *rest in spec['signature']:
-        value = stat(rows, key, name)
+        value = _stat2(rows, key, name)
         if value is None:
             if key == spec['primary']:
                 return None
-            fits.append(.5)     # unseen joint: neither evidence for nor against
+            fits.append((None, 1))
             continue
-        fits.append(fit(value, lo, hi, rest[0] if rest else SCALE.get(key, DEFAULT_SCALE)))
-    if not fits:
+        fits.append((fit(value, lo, hi, rest[0] if rest else SCALE.get(key, DEFAULT_SCALE)),
+                     2 if key == spec['primary'] else 1))
+    seen = [(f, w) for f, w in fits if f is not None]
+    if len(seen) < min(3, len(fits)):
         return None
-    return round(0.5 * sum(fits) / len(fits) + 0.5 * min(fits), 3)
+    mean = sum(f * w for f, w in seen) / sum(w for _, w in seen)
+    quality = 0.5 * mean + 0.5 * min(f for f, _ in seen)
+    # Absolute evidence count (capped at 6): more independent confirmations beat a short spec
+    # that happens to fit the same few signals — a standing squat must not lose to a hanging
+    # knee raise just because the wrists are out of frame.
+    return round(quality * (0.6 + 0.4 * min(1, len(seen) / 6)), 3)
 
 
 def classify(cameras, library=None):
@@ -55,7 +77,7 @@ def classify(cameras, library=None):
         rows = camera['rows']
         if camera['view'] not in ('side', 'frontal') or len(rows) < MIN_DETECT_ROWS or rows[-1]['t'] - rows[0]['t'] < MIN_DETECT_MS:
             continue
-        moving = [stat(rows, k, 'range') for k in ('knee', 'hip', 'elbow', 'shoulder', 'trunk', 'ankle')]
+        moving = [_stat2(rows, k, 'range') for k in ('knee', 'hip', 'elbow', 'shoulder', 'trunk', 'ankle')]
         if not any(v is not None and v >= 15 for v in moving):
             continue
         for spec in library.values():
@@ -117,8 +139,12 @@ def segments(rows, key='knee', rest=150, work=125, cycle='flex', min_seconds=.7)
 
 MIN_RANGE = 20          # degrees the primary joint must travel before any rep can count
 MIN_COVERAGE = .5       # share of frames the primary joint must be visible in to drive counting
-# When the primary joint is hidden or foreshortened, a body-position signal that rises and falls
-# with every rep of that joint's movement can still count reps (never grade them).
+# When the dominant-side joint is hidden or foreshortened, the same joint on the opposite side
+# is tried next: it is a real joint angle, so reps counted from it can still be graded (the
+# spec's standards are symmetric). Only when both sides are unusable does counting fall back to
+# a body-position proxy, which rises and falls with every rep but can never be graded.
+OTHER_SIDE = {'knee': 'otherKnee', 'hip': 'otherHip', 'elbow': 'otherElbow',
+              'shoulder': 'otherShoulder', 'ankle': 'otherAnkle'}
 PROXIES = {'elbow': ('wristY', .25, 'the height of the shoulders above the hands'),
            'shoulder': ('wristY', .3, 'the height of the hands relative to the shoulders'),
            'knee': ('hipAnkle', .3, 'the height of the hips above the feet'),
@@ -139,11 +165,18 @@ def adaptive_gates(rows, key, cycle, rest, work, min_range):
     A foreshortened elbow that only reads 100–140° never crosses a 150° rest gate even though the
     push-up is obvious. The gates move inward only — never outward — so a full-range rep is still
     judged by the spec, while a shallow or oblique one still counts (its depth check will say so).
-    Returns None when the signal barely moves.
+    The observed range comes from the movement's extrema (``extrema_envelope``): whole-window
+    percentiles drift toward the rest position when the athlete rests between reps, and then the
+    gates collapse and every rep is missed. Percentiles remain as a fallback for signals too
+    short or irregular to zigzag. Returns None when the signal barely moves.
     """
-    lo, hi = stat(rows, key, 'p10', MIN_COVERAGE), stat(rows, key, 'p90', MIN_COVERAGE)
-    if lo is None or hi - lo < min_range:
-        return None
+    envelope = extrema_envelope(rows, key, min_range)
+    if envelope is None:
+        lo, hi = stat(rows, key, 'p10', MIN_COVERAGE), stat(rows, key, 'p90', MIN_COVERAGE)
+        if lo is None or hi - lo < min_range:
+            return None
+    else:
+        lo, hi = envelope
     span = hi - lo
     if cycle == 'flex':
         rest, work = min(rest, hi - .2 * span), max(work, lo + .35 * span)
@@ -157,27 +190,49 @@ def adaptive_gates(rows, key, cycle, rest, work, min_range):
 
 
 def count_reps(spec, camera):
-    """Segment reps on the spec's primary joint, or on a proxy signal when that joint is unusable.
+    """Segment reps on the spec's primary joint, its opposite-side twin, or a proxy signal.
 
-    Returns (segments, signal) — ``signal`` is the spec's primary joint or the proxy key used.
+    Returns (segments, signal) — ``signal`` is the key that drove counting: the spec's primary
+    joint, the opposite-side joint (gradeable, symmetric standards), or a coarse proxy (counts
+    only, never graded).
     """
     rows, key = camera['rows'], spec['primary']
-    if coverage(rows, key) >= MIN_COVERAGE:
-        gates = adaptive_gates(rows, key, spec['cycle'], spec['rest'], spec['work'], MIN_RANGE)
+    for candidate in (key, OTHER_SIDE.get(key)):
+        if candidate is None or coverage(rows, candidate) < MIN_COVERAGE:
+            continue
+        gates = adaptive_gates(rows, candidate, spec['cycle'], spec['rest'], spec['work'], MIN_RANGE)
         if gates:
-            return segments(rows, key, gates[0], gates[1], spec['cycle'], spec['minSeconds']), key
+            return segments(rows, candidate, gates[0], gates[1], spec['cycle'], spec['minSeconds']), candidate
     proxy = PROXIES.get(key)
     if not proxy:
         return [], key
     proxy_key, min_range, _ = proxy
-    lo, hi, start = stat(rows, proxy_key, 'p10', MIN_COVERAGE), stat(rows, proxy_key, 'p90', MIN_COVERAGE), stat(rows, proxy_key, 'start', MIN_COVERAGE)
-    if lo is None or hi - lo < min_range:
+    envelope = extrema_envelope(rows, proxy_key, min_range)
+    if envelope is None:
+        lo, hi = stat(rows, proxy_key, 'p10', MIN_COVERAGE), stat(rows, proxy_key, 'p90', MIN_COVERAGE)
+        if lo is None or hi - lo < min_range:
+            return [], key
+    else:
+        lo, hi = envelope
+    start = stat(rows, proxy_key, 'start', MIN_COVERAGE)
+    if start is None:
         return [], key
     span = hi - lo
     cycle = 'flex' if start >= (lo + hi) / 2 else 'extend'    # rest at the high end, or at the low end
     rest = hi - .25 * span if cycle == 'flex' else lo + .25 * span
     work = lo + .4 * span if cycle == 'flex' else hi - .4 * span
     return segments(rows, proxy_key, rest, work, cycle, spec['minSeconds']), proxy_key
+
+
+def side_swapped(camera, key, other):
+    """A copy of one camera whose rows read the opposite-side joint as the primary one.
+
+    Grading keys (``_primary`` → ``spec['primary']``) then resolve to the visible joint, so a
+    set counted on the opposite side is graded by exactly the same checks. Symmetric signals
+    (kneeAsym, hipAsym) are unchanged; unrelated checks are untouched.
+    """
+    rows = [{**r, key: r.get(other), other: r.get(key)} for r in camera['rows']]
+    return {**camera, 'rows': rows}
 
 
 # ─── Per-rep grading ───────────────────────────────────────────────────────────────────────────
@@ -356,13 +411,23 @@ def analyze(payload: AnalysisRequest, library=None, detector=None, coach=None):
             warnings.append(f"Camera angle was estimated as {best['view']}; scoring as a {spec['views'][0]} view because you confirmed {spec['name'].lower()}. Angles may be foreshortened — a true {spec['views'][0]} view is more accurate.")
         if usable:
             primary = max(usable, key=lambda c: coverage(c['rows'], spec['primary']))
-            found, signal = count_reps(spec, primary)
-            reps = [dict(index=i + 1, **evaluate_rep(spec, start, end, cameras)) for i, (start, end) in enumerate(found)]
             seen = coverage(primary['rows'], spec['primary'])
+            found, signal = count_reps(spec, primary)
+            graded_cameras = cameras
+            if found and signal == OTHER_SIDE.get(spec['primary']):
+                # The dominant side was unusable but the opposite side drove counting; grade that
+                # side through the same checks by presenting its joint as the primary one. The
+                # returned camera views still report the rows as actually observed.
+                swapped = side_swapped(primary, spec['primary'], signal)
+                graded_cameras = [swapped if c is primary else c for c in cameras]
+            reps = [dict(index=i + 1, **evaluate_rep(spec, start, end, graded_cameras)) for i, (start, end) in enumerate(found)]
             if seen < MIN_COVERAGE:
                 warnings.append(f"Your {spec['primary']} was visible in only {round(seen * 100)}% of frames. Move the camera so your {JOINT_HINTS.get(spec['primary'], spec['primary'])} stay in frame for the whole rep.")
             if signal != spec['primary'] and found:
-                warnings.append(f"Reps were counted from {PROXIES[spec['primary']][2]} because the {spec['primary']} was not measurable; form checks need the {spec['primary']} in view.")
+                if signal == OTHER_SIDE.get(spec['primary']):
+                    warnings.append(f"Reps were counted and graded from your opposite-side {spec['primary']} because the {spec['primary']} signal was not measurable. The same standards apply to both sides; side-to-side differences are not assessed.")
+                else:
+                    warnings.append(f"Reps were counted from {PROXIES[spec['primary']][2]} because the {spec['primary']} was not measurable; form checks need the {spec['primary']} in view.")
         else:
             needed = ' or '.join(spec['views'])
             warnings.append(f"A clear {needed} view is required to count and score {spec['name'].lower()} repetitions." + (' Frontal views add knee-tracking checks.' if 'side' in spec['views'] else ''))

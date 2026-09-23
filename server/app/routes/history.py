@@ -10,7 +10,6 @@ from ..deps import get_current_user
 from ..muscle_load import normalize_muscle_load
 from ..orm import AnalysisRecord, UserRecord, WorkoutSessionRecord
 from ..schemas import (
-    ExerciseBreakdown,
     HistoryItem,
     HistoryPage,
     HistoryStats,
@@ -143,53 +142,5 @@ async def read_telemetry(
 async def read_stats(
     user: UserRecord = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ):
-    rows = list(
-        await db.scalars(
-            select(WorkoutSessionRecord)
-            .where(WorkoutSessionRecord.user_id == user.id)
-            .order_by(WorkoutSessionRecord.created_at.desc())
-        )
-    )
-    if not rows:
-        return HistoryStats(
-            totalSessions=0,
-            totalReps=0,
-            totalDurationSeconds=0.0,
-            avgFormScore=0.0,
-            peakEffort=0.0,
-            topFlaws=[],
-            byExercise=[],
-            lastSessionAt=None,
-        )
-
-    total_reps = sum(row.total_reps for row in rows)
-    flaw_counts = Counter()
-    grouped: dict[str, list[WorkoutSessionRecord]] = {}
-    for row in rows:
-        grouped.setdefault(row.exercise_id, []).append(row)
-        for rep in row.reps or []:
-            flaw_counts.update(rep.get("flaws") or [])
-
-    by_exercise = [
-        ExerciseBreakdown(
-            exerciseId=exercise_id,
-            exerciseName=group[0].exercise_name,
-            sessions=len(group),
-            totalReps=sum(item.total_reps for item in group),
-            avgFormScore=round(sum(item.avg_form_score for item in group) / len(group), 2),
-            bestFormScore=max(item.avg_form_score for item in group),
-        )
-        for exercise_id, group in grouped.items()
-    ]
-    by_exercise.sort(key=lambda entry: entry.sessions, reverse=True)
-
-    return HistoryStats(
-        totalSessions=len(rows),
-        totalReps=total_reps,
-        totalDurationSeconds=round(sum(row.duration_seconds for row in rows), 2),
-        avgFormScore=round(sum(row.avg_form_score for row in rows) / len(rows), 2),
-        peakEffort=max(row.peak_effort for row in rows),
-        topFlaws=flaw_counts.most_common(5),
-        byExercise=by_exercise,
-        lastSessionAt=rows[0].created_at,
-    )
+    from ..activity.service import athlete_stats
+    return await athlete_stats(db, user)

@@ -15,7 +15,7 @@ import json
 import re
 import time
 from statistics import median
-from .features import ANGLE_KEYS, stat
+from .features import ANGLE_KEYS, extrema_envelope, stat
 from .library import FAMILIES, MUSCLE_IDS
 
 CONFIDENT = .6
@@ -66,7 +66,12 @@ def _rhythm(rows, segments_fn):
     if not ranges or max(ranges.values()) < 20:
         return 'Very little joint movement — could be a static hold or the athlete is not yet moving.'
     key = max(ranges, key=ranges.get)
-    lo, hi, start = stat(rows, key, 'p10'), stat(rows, key, 'p90'), stat(rows, key, 'start')
+    # Extrema first: a rest-heavy set skews percentiles toward the rest position and the model
+    # would be told "0 cycles" while reps clearly happened.
+    lo, hi = extrema_envelope(rows, key, 20) or (stat(rows, key, 'p10'), stat(rows, key, 'p90'))
+    start = stat(rows, key, 'start')
+    if lo is None or hi is None or start is None:
+        return 'Movement was too brief or too occluded to judge the rhythm.'
     cycle = 'flex' if start >= (lo + hi) / 2 else 'extend'
     span = hi - lo
     rest = hi - .25 * span if cycle == 'flex' else lo + .25 * span
@@ -142,17 +147,22 @@ class LlmDetector:
         return None
 
     def complete(self, summary, library):
-        from openai import OpenAI
+        from openai import APIStatusError, OpenAI
         client = OpenAI(api_key=self.api_key, base_url=self.base_url, timeout=self.timeout,
                         default_headers={'HTTP-Referer': 'https://base44.com', 'X-Title': 'FormFit AI'})
         catalog = '\n'.join(f"{s['id']}: {s['name']}" + (f" (variant of {s['variantOf']})" if s['variantOf'] else '') + (' [athlete-taught]' if s['custom'] else '')
                             for s in library.values())
         user = (f"MOVEMENT\n{summary}\n\nLIBRARY\n{catalog}\n\nFAMILIES: {', '.join(FAMILIES)}\nMUSCLES: {', '.join(MUSCLE_IDS)}")
+        request = {'model': self.model, 'max_tokens': 300, 'temperature': 0,
+                   'messages': [{'role': 'system', 'content': SYSTEM}, {'role': 'user', 'content': user}]}
         try:
-            completion = client.chat.completions.create(
-                model=self.model, max_tokens=300, temperature=0,
-                messages=[{'role': 'system', 'content': SYSTEM}, {'role': 'user', 'content': user}],
-                response_format={'type': 'json_object'})
+            try:
+                completion = client.chat.completions.create(**request, response_format={'type': 'json_object'})
+            except APIStatusError as error:
+                if error.status_code != 400:
+                    raise
+                # Some models reject response_format; the prompt still demands a JSON object.
+                completion = client.chat.completions.create(**request)
         finally:
             client.close()
         return parse(completion.choices[0].message.content or '{}')

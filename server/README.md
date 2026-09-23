@@ -2,7 +2,50 @@
 
 FastAPI service for FormFit AI.
 
+## Architecture
+
+The backend is **activity-centric** (Strava-style). A recorded set is an *activity*: it is
+uploaded once, processed by the pipeline, persisted, and everything else — the training log,
+the social feed, the stats, the coach debrief — hangs off it.
+
+```
+POST /api/activities  (one call: landmark streams in, processed activity out)
+        │
+        ▼
+app/activity/pipeline.py   ingest → detect → segment → grade → enrich
+        │                  (rules engine in app/analysis/*, LLM second opinion when unsure)
+        ▼
+app/activity/service.py    persist_activity: session + analysis + feed entry + coach job,
+                           written together so log, feed and stats can never disagree
+        ▼
+GET /api/activities        training log      GET /api/activities/{id}   full activity page
+GET /api/athletes/me/stats all-time stats    DELETE /api/activities/{id}
+```
+
+Only *scored* sets (exercise known, reps counted and graded) become log entries; an
+unscored recording is rejected `422` with guidance instead of polluting the log. Visibility
+works like a Strava upload: `public`/`followers` activities appear in the social feed,
+`private` ones stay in the owner's log only. When `OPENROUTER_API_KEY` is configured, the
+coach debrief is queued automatically as part of processing — not as a separate client action.
+
+The legacy endpoints below (`/api/analysis/evaluate` with `persist`, `/api/workout/session`,
+`/api/social/activities`) form the compatibility layer the current frontend still uses; they
+write through the same tables, so both worlds see the same data. New clients should use
+`/api/activities` exclusively.
+
 ## Endpoints
+
+### Activities (primary API)
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/api/activities` | Record a set: streams in → detected, counted, graded, saved, shared, coach queued. `201` with the full activity |
+| `GET` | `/api/activities` | The athlete's training log (`exerciseId`, `since`, `until`, `limit`, `offset`) |
+| `GET` | `/api/activities/{id}` | Full activity page: report, reps, focus, muscle load, social counts, coach debrief |
+| `DELETE` | `/api/activities/{id}` | Delete the whole aggregate (session, report, feed entry, coach jobs) |
+| `GET` | `/api/athletes/me/stats` | All-time totals, per-exercise breakdown, top flaws |
+
+All require a bearer token and only ever touch the caller's own activities.
 
 ### Auth & profile
 
@@ -93,6 +136,8 @@ Tests run against SQLite (aiosqlite), no PostgreSQL needed locally.
 
 ## Schema note
 
-Tables are created with `Base.metadata.create_all` on startup. This release adds `users`,
-`user_profiles`, `coach_summaries` and a nullable `workout_sessions.user_id`; an existing
-PostgreSQL database needs that column added by hand before deploying.
+Tables are created with `Base.metadata.create_all` on startup. New columns on
+`workout_sessions` (`workout_id`, `muscle_load`, `caption`) are added automatically on
+PostgreSQL via startup `ALTER TABLE ... IF NOT EXISTS`; `users`, `user_profiles` and
+`coach_summaries` are created as whole tables. A pre-existing PostgreSQL database only needs
+manual intervention if it predates the nullable `workout_sessions.user_id` column.
