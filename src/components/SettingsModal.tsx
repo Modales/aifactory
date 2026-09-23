@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Settings, Sliders, Volume2, Video, RotateCcw } from 'lucide-react'
+import { BrainCircuit, Settings, Sliders, Volume2, Video, RotateCcw } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { useUserSettings, resetOnboarding } from '@/lib/workoutStore'
-import type { CameraAngle } from '@/lib/simulation'
+import { EXERCISES, type CameraAngle } from '@/lib/simulation'
 import OnboardingWizard from '@/components/OnboardingWizard'
 
 export default function SettingsModal() {
@@ -45,7 +45,7 @@ export default function SettingsModal() {
         <DialogContent className="hard-shadow border-2 border-foreground bg-card sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="font-serifit text-xl italic flex items-center gap-2">
-              <Sliders className="h-5 w-5 text-primary" /> Camera & Calibration Settings
+              <Sliders className="h-5 w-5 text-primary" /> Live Set Settings
             </DialogTitle>
             <DialogDescription className="mono-data text-[10px] tracking-[0.2em]">
               PERSISTED AUTOMATICALLY TO LOCAL STORAGE ACROSS SESSIONS
@@ -53,6 +53,41 @@ export default function SettingsModal() {
           </DialogHeader>
 
           <div className="space-y-4 py-2 font-mono text-xs">
+            <div className="space-y-2 border-b border-foreground/20 pb-3">
+              <label className="flex items-center gap-2 font-bold tracking-wider text-foreground">
+                <BrainCircuit className="h-4 w-4 text-primary" /> EXERCISE SELECTION
+              </label>
+              <p className="text-[10px] text-muted-foreground">
+                Choose the movement yourself or let pose geometry suggest one for confirmation.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {(['manual', 'detect'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => updateSettings({ exerciseSelectionMode: mode })}
+                    className={`border-2 border-foreground py-2 font-bold ${settings.exerciseSelectionMode === mode ? 'bg-primary text-primary-foreground' : 'bg-background'}`}
+                  >
+                    {mode === 'manual' ? 'I WILL CHOOSE' : 'AI DETECTION'}
+                  </button>
+                ))}
+              </div>
+              {settings.exerciseSelectionMode === 'manual' && (
+                <select
+                  value={settings.manualExerciseId}
+                  onChange={(event) => updateSettings({ manualExerciseId: event.target.value })}
+                  className="w-full border-2 border-foreground bg-background p-2 font-mono text-xs hard-shadow-sm focus:outline-none"
+                >
+                  {EXERCISES.map((exercise) => <option key={exercise.id} value={exercise.id}>{exercise.name}</option>)}
+                </select>
+              )}
+              {settings.exerciseSelectionMode === 'detect' && (
+                <p className="border-l-2 border-primary pl-2 text-[10px] text-muted-foreground">
+                  Scoring starts only after you confirm a stable detection; uncertain matches keep observing.
+                </p>
+              )}
+            </div>
+
             {/* Camera Angle Preference */}
             <div className="space-y-1.5 border-b border-foreground/20 pb-3">
               <label className="flex items-center gap-2 font-bold tracking-wider text-foreground">

@@ -17,7 +17,7 @@ export default function Login() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  const redirectTo = (location.state as { from?: string } | null)?.from ?? '/history'
+  const redirectTo = (location.state as { from?: string } | null)?.from ?? '/dashboard'
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault()

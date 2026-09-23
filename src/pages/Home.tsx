@@ -13,11 +13,9 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import AuthNav from '@/components/AuthNav'
-import OnboardingWizard from '@/components/OnboardingWizard'
 import PoseCanvas from '@/components/PoseCanvas'
 import EffortDial, { zoneFor } from '@/components/EffortDial'
 import { EXERCISES } from '@/lib/simulation'
-import { getStoredOnboarding } from '@/lib/workoutStore'
 
 const EASE = [0.22, 1, 0.36, 1] as const
 
@@ -155,19 +153,12 @@ export default function Home() {
   const [reps, setReps] = useState(7)
   const [slow, setSlow] = useState(24)
   const [strain, setStrain] = useState(46)
-  const [showOnboarding, setShowOnboarding] = useState(false)
   const demoEffort = Math.max(3, Math.min(99, Math.round(6 + reps * 5.6 + slow * 0.62 + strain * 0.3)))
   const zone = zoneFor(demoEffort)
-
-  useEffect(() => {
-    if (!getStoredOnboarding().completed) setShowOnboarding(true)
-  }, [])
 
   return (
     <div className="min-h-screen touch-manipulation bg-background pb-20 lg:pb-0">
       <div className="noise" />
-
-      <OnboardingWizard isOpen={showOnboarding} onClose={() => setShowOnboarding(false)} />
 
       {/* ── Header ─────────────────────────────────────────── */}
       <header className="sticky top-0 z-40 border-b-2 border-foreground bg-background/90 backdrop-blur">
@@ -187,13 +178,6 @@ export default function Home() {
             ))}
           </nav>
           <div className="flex items-center gap-4">
-            <button
-              type="button"
-              onClick={() => setShowOnboarding(true)}
-              className="underline-sweep mono-data hidden text-xs font-bold tracking-[0.2em] text-primary hover:text-primary/80 sm:block"
-            >
-              ONBOARDING
-            </button>
             <AuthNav />
             <Link to="/session">
               <Button className="hard-shadow-sm border-2 border-foreground font-bold transition-transform hover:-translate-y-0.5">
