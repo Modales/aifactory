@@ -1,0 +1,37 @@
+{
+  "version": "BodyParts3D-skin-1",
+  "parts": [
+    {
+      "id": "FJ2810",
+      "name": "Skin",
+      "conceptId": "FMA7163",
+      "system": "integumentary",
+      "chunk": 0,
+      "positions": 0,
+      "normals": 274824,
+      "indices": 412236,
+      "vertexCount": 22902,
+      "indexCount": 134232,
+      "bounds": [
+        [
+          -0.33411900000000005,
+          1.3877787807814457e-17,
+          -0.1452476
+        ],
+        [
+          0.332825,
+          1.7194711999999999,
+          0.146783
+        ]
+      ]
+    }
+  ],
+  "chunks": [
+    {
+      "url": "/models/exercise-skin.bin.gz",
+      "gzip": "/models/exercise-skin.bin.gz",
+      "bytes": 949164,
+      "gzipBytes": 587571
+    }
+  ]
+}

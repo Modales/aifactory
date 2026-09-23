@@ -1,4 +1,5 @@
 import type { RepData } from './simulation'
+import type { MuscleLoadSummary } from './muscleModel'
 
 export const API_BASE_URL =
   (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://127.0.0.1:4000'
@@ -21,6 +22,7 @@ export interface AuthToken {
 
 export interface HistoryItem {
   id: string
+  workoutId: string | null
   exerciseId: string
   exerciseName: string
   cameraAngle: string
@@ -28,6 +30,7 @@ export interface HistoryItem {
   totalReps: number
   avgFormScore: number
   peakEffort: number
+  muscleLoad: MuscleLoadSummary
   createdAt: string
 }
 
@@ -68,7 +71,7 @@ export interface SocialActivity {
   author: SocialAuthor
   caption: string
   visibility: 'public' | 'followers'
-  workout: { exerciseName: string; totalReps: number; durationSeconds: number; avgFormScore: number } | null
+  workout: { exerciseId: string; exerciseName: string; totalReps: number; durationSeconds: number; avgFormScore: number; muscleLoad: MuscleLoadSummary } | null
   reactionCount: number
   commentCount: number
   reactedByMe: boolean
@@ -117,15 +120,19 @@ export interface CoachSummary {
 }
 
 export interface TelemetryLog {
+  analysis?: import('./analysisApi').AnalysisReport | null
   sessionId: string
   exerciseId: string
   exerciseName: string
   recordedAt: string
+  muscleLoad: MuscleLoadSummary
   reps: RepData[]
   flawCounts: Record<string, number>
 }
 
 export interface SessionPayload {
+  analysisId?: string
+  workoutId?: string
   exerciseId: string
   exerciseName: string
   cameraAngle: string
@@ -133,6 +140,7 @@ export interface SessionPayload {
   totalReps: number
   avgFormScore: number
   peakEffort: number
+  muscleLoad: MuscleLoadSummary
   reps: RepData[]
 }
 
@@ -163,7 +171,7 @@ export function setStoredToken(token: string | null): void {
   }
 }
 
-async function request<T>(
+export async function request<T>(
   path: string,
   options: { method?: string; body?: unknown; token?: string | null } = {},
 ): Promise<T> {
@@ -250,7 +258,15 @@ export const api = {
 
   summaryJob: (jobId: string) =>
     request<CoachSummary>(`/api/workout/generate-summary/${jobId}`),
-  socialFeed: () => request<SocialFeed>('/api/social/feed'),
+  socialFeed: (params: { limit?: number; offset?: number } = {}) => {
+    const query = new URLSearchParams()
+    if (params.limit !== undefined) query.set('limit', String(params.limit))
+    if (params.offset !== undefined) query.set('offset', String(params.offset))
+    const suffix = query.toString() ? `?${query}` : ''
+    return request<SocialFeed>(`/api/social/feed${suffix}`)
+  },
+  shareActivity: (payload: { sessionId?: string; caption: string; visibility: 'public' | 'followers' }) =>
+    request<SocialActivity>('/api/social/activities', { method: 'POST', body: payload }),
   clubs: () => request<SocialClub[]>('/api/social/clubs'),
   challenges: () => request<SocialChallenge[]>('/api/social/challenges'),
   reactToActivity: (activityId: string) =>

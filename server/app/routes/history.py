@@ -7,7 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..deps import get_current_user
-from ..orm import UserRecord, WorkoutSessionRecord
+from ..muscle_load import normalize_muscle_load
+from ..orm import AnalysisRecord, UserRecord, WorkoutSessionRecord
 from ..schemas import (
     ExerciseBreakdown,
     HistoryItem,
@@ -23,6 +24,7 @@ router = APIRouter(prefix="/api/workouts", tags=["history"])
 def _to_item(record: WorkoutSessionRecord) -> HistoryItem:
     return HistoryItem(
         id=record.id,
+        workoutId=record.workout_id,
         exerciseId=record.exercise_id,
         exerciseName=record.exercise_name,
         cameraAngle=record.camera_angle,
@@ -30,6 +32,7 @@ def _to_item(record: WorkoutSessionRecord) -> HistoryItem:
         totalReps=record.total_reps,
         avgFormScore=record.avg_form_score,
         peakEffort=record.peak_effort,
+        muscleLoad=normalize_muscle_load(record.muscle_load),
         createdAt=record.created_at,
     )
 
@@ -97,6 +100,7 @@ async def read_history_entry(
         totalReps=record.total_reps,
         avgFormScore=record.avg_form_score,
         peakEffort=record.peak_effort,
+        muscleLoad=normalize_muscle_load(record.muscle_load),
         reps=record.reps,
         createdAt=record.created_at,
     )
@@ -122,11 +126,14 @@ async def read_telemetry(
     for rep in record.reps or []:
         flaw_counts.update(rep.get("flaws") or [])
 
+    analysis = await db.scalar(select(AnalysisRecord).where(AnalysisRecord.session_id == record.id))
     return TelemetryLog(
+        analysis={**analysis.result, 'analysisId': analysis.id} if analysis else None,
         sessionId=record.id,
         exerciseId=record.exercise_id,
         exerciseName=record.exercise_name,
         recordedAt=record.created_at,
+        muscleLoad=normalize_muscle_load(record.muscle_load),
         reps=reps,
         flawCounts=dict(flaw_counts),
     )

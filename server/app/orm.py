@@ -64,6 +64,7 @@ class WorkoutSessionRecord(Base):
     user_id: Mapped[str | None] = mapped_column(
         String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    workout_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     exercise_id: Mapped[str] = mapped_column(String)
     exercise_name: Mapped[str] = mapped_column(String)
     camera_angle: Mapped[str] = mapped_column(String)
@@ -71,10 +72,33 @@ class WorkoutSessionRecord(Base):
     total_reps: Mapped[int] = mapped_column(Integer)
     avg_form_score: Mapped[float] = mapped_column(Float)
     peak_effort: Mapped[float] = mapped_column(Float)
+    muscle_load: Mapped[dict] = mapped_column(JSON, default=dict)
     reps: Mapped[list] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     __table_args__ = (Index("ix_workout_sessions_user_created", "user_id", "created_at"),)
+
+
+class AnalysisRecord(Base):
+    __tablename__ = "analysis_reports"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_new_id)
+    user_id: Mapped[str] = mapped_column(String, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    session_id: Mapped[str | None] = mapped_column(String, ForeignKey("workout_sessions.id", ondelete="SET NULL"), nullable=True, unique=True)
+    model_version: Mapped[str] = mapped_column(String(40))
+    result: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class CustomExerciseRecord(Base):
+    """An exercise the athlete taught from their own reps; ``spec`` is a full library spec."""
+    __tablename__ = "custom_exercises"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(60))
+    spec: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
 class FollowRecord(Base):

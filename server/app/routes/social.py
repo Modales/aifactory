@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..deps import get_current_user
+from ..muscle_load import normalize_muscle_load
 from ..orm import (
     ActivityCommentRecord,
     ActivityReactionRecord,
@@ -71,10 +72,12 @@ async def _activity_schema(db: AsyncSession, activity: ActivityRecord, viewer_id
         caption=activity.caption,
         visibility=activity.visibility,
         workout=ActivityWorkout(
+            exerciseId=workout.exercise_id,
             exerciseName=workout.exercise_name,
             totalReps=workout.total_reps,
             durationSeconds=workout.duration_seconds,
             avgFormScore=workout.avg_form_score,
+            muscleLoad=normalize_muscle_load(workout.muscle_load),
         ) if workout else None,
         reactionCount=reactions,
         commentCount=comments,
@@ -115,14 +118,15 @@ async def unfollow(user_id: str, user: UserRecord = Depends(get_current_user), d
 async def feed(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    scope: str = Query(default='everyone', pattern='^(everyone|following)$'),
     user: UserRecord = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     followed = select(FollowRecord.followed_id).where(FollowRecord.follower_id == user.id)
     activities = list(await db.scalars(
         select(ActivityRecord)
-        .where(or_(ActivityRecord.user_id == user.id, ActivityRecord.visibility == "public", ActivityRecord.user_id.in_(followed)))
-        .order_by(ActivityRecord.created_at.desc()).limit(limit).offset(offset)
+        .where(or_(ActivityRecord.user_id == user.id, ActivityRecord.user_id.in_(followed), (ActivityRecord.visibility == 'public') if scope == 'everyone' else False))
+        .order_by(ActivityRecord.created_at.desc(), ActivityRecord.id.desc()).limit(limit).offset(offset)
     ))
     return ActivityFeed(items=[await _activity_schema(db, item, user.id) for item in activities], limit=limit, offset=offset)
 
@@ -166,6 +170,8 @@ async def remove_reaction(activity_id: str, user: UserRecord = Depends(get_curre
 @router.post("/activities/{activity_id}/comments", response_model=ActivityComment, status_code=status.HTTP_201_CREATED, summary="Comment on an activity")
 async def comment(activity_id: str, body: str = Query(min_length=1, max_length=1000), user: UserRecord = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     activity = await _get_visible_activity(db, activity_id, user.id)
+    if not body.strip():
+        raise HTTPException(status_code=422, detail="A comment cannot be blank")
     record = ActivityCommentRecord(activity_id=activity.id, user_id=user.id, body=body.strip())
     db.add(record)
     await db.commit()
@@ -203,7 +209,7 @@ async def create_club(payload: ClubCreatePayload, user: UserRecord = Depends(get
 
 @router.get("/clubs", response_model=list[Club], summary="Discover training clubs")
 async def list_clubs(user: UserRecord = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    clubs = list(await db.scalars(select(ClubRecord).order_by(ClubRecord.created_at.desc())))
+    clubs = list(await db.scalars(select(ClubRecord).order_by(ClubRecord.created_at.desc()).limit(100)))
     return [await _club_schema(db, club, user.id) for club in clubs]
 
 
@@ -228,6 +234,8 @@ async def _challenge_schema(db: AsyncSession, challenge: ChallengeRecord, user_i
 
 @router.post("/challenges", response_model=Challenge, status_code=status.HTTP_201_CREATED, summary="Create a training challenge")
 async def create_challenge(payload: ChallengeCreatePayload, user: UserRecord = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if payload.endsAt <= datetime.now(timezone.utc):
+        raise HTTPException(status_code=422, detail="Challenge end must be in the future")
     if payload.endsAt <= payload.startsAt:
         raise HTTPException(status_code=422, detail="Challenge end must be after its start")
     if payload.clubId and await db.get(ClubMemberRecord, {"club_id": payload.clubId, "user_id": user.id}) is None:
@@ -244,7 +252,8 @@ async def create_challenge(payload: ChallengeCreatePayload, user: UserRecord = D
 @router.get("/challenges", response_model=list[Challenge], summary="Browse current training challenges")
 async def list_challenges(user: UserRecord = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     now = datetime.now(timezone.utc)
-    challenges = list(await db.scalars(select(ChallengeRecord).where(ChallengeRecord.ends_at >= now).order_by(ChallengeRecord.ends_at.asc())))
+    memberships = select(ClubMemberRecord.club_id).where(ClubMemberRecord.user_id == user.id)
+    challenges = list(await db.scalars(select(ChallengeRecord).where(ChallengeRecord.ends_at >= now, or_(ChallengeRecord.club_id.is_(None), ChallengeRecord.club_id.in_(memberships))).order_by(ChallengeRecord.ends_at.asc()).limit(100)))
     return [await _challenge_schema(db, challenge, user.id) for challenge in challenges]
 
 
@@ -271,7 +280,7 @@ async def leaderboard(challenge_id: str, user: UserRecord = Depends(get_current_
     if await db.get(ChallengeParticipantRecord, {"challenge_id": challenge.id, "user_id": user.id}) is None:
         raise HTTPException(status_code=403, detail="Join the challenge to view its leaderboard")
     metric_column = {"reps": WorkoutSessionRecord.total_reps, "sessions": WorkoutSessionRecord.id, "durationSeconds": WorkoutSessionRecord.duration_seconds}[challenge.metric]
-    aggregate = func.count(metric_column) if challenge.metric == "sessions" else func.coalesce(func.sum(metric_column), 0)
+    aggregate = func.count(func.distinct(func.coalesce(WorkoutSessionRecord.workout_id, WorkoutSessionRecord.id))) if challenge.metric == "sessions" else func.coalesce(func.sum(metric_column), 0)
     rows = list(await db.execute(
         select(UserRecord, aggregate.label("value"))
         .join(ChallengeParticipantRecord, ChallengeParticipantRecord.user_id == UserRecord.id)

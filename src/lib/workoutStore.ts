@@ -1,7 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { RepData, CameraAngle } from './simulation'
+import type { MuscleLoadSummary } from './muscleModel'
 
 export interface UserSettings {
+  exerciseSelectionMode: 'manual' | 'detect'
+  manualExerciseId: string
   cameraAnglePreference: CameraAngle | 'Auto'
   sensitivity: 'Strict' | 'Standard' | 'Lenient'
   effortAlertThreshold: number
@@ -27,13 +30,17 @@ export interface StoredSession {
   avgFormScore: number
   peakEffort: number
   reps: RepData[]
+  muscleLoad?: MuscleLoadSummary
 }
 
 const SETTINGS_STORAGE_KEY = 'aifactory_user_settings'
 const HISTORY_STORAGE_KEY = 'aifactory_session_history'
 const ONBOARDING_STORAGE_KEY = 'aifactory_onboarding_data'
+const SETTINGS_CHANGE_EVENT = 'formfit:settings-change'
 
 export const DEFAULT_SETTINGS: UserSettings = {
+  exerciseSelectionMode: 'manual',
+  manualExerciseId: 'squat',
   cameraAnglePreference: 'Auto',
   sensitivity: 'Standard',
   effortAlertThreshold: 85,
@@ -117,6 +124,7 @@ export function getStoredSettings(): UserSettings {
 export function saveStoredSettings(settings: UserSettings): void {
   try {
     localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings))
+    window.dispatchEvent(new CustomEvent<UserSettings>(SETTINGS_CHANGE_EVENT, { detail: settings }))
   } catch (e) {
     console.error('Failed to save settings to localStorage', e)
   }
@@ -189,6 +197,15 @@ export function clearSessionHistory(): void {
 
 export function useUserSettings() {
   const [settings, setSettings] = useState<UserSettings>(getStoredSettings)
+
+  useEffect(() => {
+    const syncSettings = (event: Event) => {
+      const detail = (event as CustomEvent<UserSettings>).detail
+      setSettings(detail ?? getStoredSettings())
+    }
+    window.addEventListener(SETTINGS_CHANGE_EVENT, syncSettings)
+    return () => window.removeEventListener(SETTINGS_CHANGE_EVENT, syncSettings)
+  }, [])
 
   const updateSettings = (newSettings: Partial<UserSettings>) => {
     setSettings((prev) => {

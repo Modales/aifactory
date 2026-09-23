@@ -129,7 +129,7 @@ def parse_coach_json(text: str) -> dict:
     return data
 
 
-class AimlCoach:
+class OpenRouterCoach:
     def __init__(
         self,
         api_key: str | None,
@@ -146,11 +146,18 @@ class AimlCoach:
         self, session: WorkoutSessionRecord, profile: UserProfileRecord | None
     ) -> CoachResult:
         if not self._api_key:
-            raise CoachError("AIML_API_KEY is not configured")
+            raise CoachError("OPENROUTER_API_KEY is not configured")
 
         from openai import APIStatusError, AsyncOpenAI
 
-        client = AsyncOpenAI(api_key=self._api_key, base_url=self._base_url)
+        client = AsyncOpenAI(
+            api_key=self._api_key,
+            base_url=self._base_url,
+            default_headers={
+                "HTTP-Referer": "https://base44.com",
+                "X-Title": "FormFit AI",
+            },
+        )
         messages = [
             {"role": "system", "content": COACH_SYSTEM_PROMPT},
             {"role": "user", "content": build_prompt(session, profile)},
@@ -213,12 +220,11 @@ def describe_api_error(exc: Exception) -> str:
                 if isinstance(data, dict):
                     kind = data.get("kind")
 
-    if kind == "err_insufficent_credits":
-        return "The AIML API account is out of funds — top up at https://aimlapi.com/app/billing/"
-
     status = getattr(exc, "status_code", None)
+    if kind == "err_insufficent_credits" or status == 402:
+        return "The OpenRouter account is out of funds — top up at https://openrouter.ai/settings/credits"
     if status == 401:
-        return "AIML rejected the API key"
+        return "OpenRouter rejected the API key"
     if status == 404:
-        return "The configured COACH_MODEL is not available on AIML"
-    return message or f"AIML request failed ({status})"
+        return "The configured COACH_MODEL is not available on OpenRouter"
+    return message or f"OpenRouter request failed ({status})"
