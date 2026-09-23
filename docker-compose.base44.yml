@@ -26,7 +26,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/aifactory
       JWT_SECRET: base44-dev-only-jwt-secret-please-change
       ACCESS_TOKEN_TTL_MINUTES: "10080"
-      AIML_BASE_URL: https://api.aimlapi.com/v1
+      OPENROUTER_BASE_URL: https://openrouter.ai/api/v1
       COACH_MODEL: anthropic/claude-sonnet-4.6
     env_file:
       - /run/base44/app.env

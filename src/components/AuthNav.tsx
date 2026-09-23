@@ -23,10 +23,10 @@ export default function AuthNav() {
   return (
     <div className="flex items-center gap-3">
       <Link
-        to="/terminal"
-        className="mono-data hidden items-center gap-2 text-xs tracking-[0.2em] hover:text-primary lg:flex"
+        to="/dashboard"
+        className="mono-data flex items-center gap-2 text-xs tracking-[0.2em] hover:text-primary"
       >
-        <LayoutDashboard className="h-4 w-4" /> TERMINAL
+        <LayoutDashboard className="h-4 w-4" /> <span className="hidden sm:inline">DASHBOARD</span>
       </Link>
       <Link
         to="/wearables"

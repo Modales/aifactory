@@ -11,7 +11,7 @@
 - Compose passes `VITE_API_URL=https://8000-${BASE44_PUBLIC_HOST_SUFFIX}` to the web service so the browser calls the public API origin.
 
 ## Secrets
-- `AIML_API_KEY` (AIML API, https://aimlapi.com) — only used by the post-workout LLM coach summary feature. **Not required at boot**: the app renders and works without it; only `POST /api/workout/generate-summary` needs it. Delivered via `/run/base44/app.env`.
+- `OPENROUTER_API_KEY` (OpenRouter, https://openrouter.ai/settings/keys) — only used by the post-workout LLM coach summary feature. **Not required at boot**: the app renders and works without it; only `POST /api/workout/generate-summary` needs it. Delivered via `/run/base44/app.env`.
 - `JWT_SECRET` and `DATABASE_URL` are local/dev credentials generated inline in the compose file (not user secrets).
 
 ## Run

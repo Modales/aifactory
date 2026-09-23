@@ -64,6 +64,7 @@ class WorkoutSessionRecord(Base):
     user_id: Mapped[str | None] = mapped_column(
         String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    workout_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     exercise_id: Mapped[str] = mapped_column(String)
     exercise_name: Mapped[str] = mapped_column(String)
     camera_angle: Mapped[str] = mapped_column(String)
@@ -71,6 +72,7 @@ class WorkoutSessionRecord(Base):
     total_reps: Mapped[int] = mapped_column(Integer)
     avg_form_score: Mapped[float] = mapped_column(Float)
     peak_effort: Mapped[float] = mapped_column(Float)
+    muscle_load: Mapped[dict] = mapped_column(JSON, default=dict)
     reps: Mapped[list] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
