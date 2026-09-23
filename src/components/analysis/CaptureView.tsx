@@ -63,7 +63,8 @@ export default function CaptureView({ config, recording, showHeading = true, epo
       if(cancelled || pending || video.paused || video.ended || video.readyState<2 || !estimatorRef.current) return
       if(video.currentTime===lastMedia.current) return
       const now=performance.now()
-      if(now-lastAt<180) return
+      // ~8 fps: at 5 fps a quick rep's bottom lasted 1–2 frames and the 3-frame smoothing erased it.
+      if(now-lastAt<120) return
       pending=true; lastAt=now; lastMedia.current=video.currentTime
       const timestampMs = config.kind==='upload' ? video.currentTime*1000 : now-epoch
       try {
@@ -77,7 +78,7 @@ export default function CaptureView({ config, recording, showHeading = true, epo
         setCount(c=>c+1);setMessage('Capturing landmarks · video stays on this device')
         if(canvas && context) {context.strokeStyle='#fc4c02';context.lineWidth=3; for(const [a,b] of BONES) {if((landmarks[a].visibility??0)<.55 || (landmarks[b].visibility??0)<.55) continue; context.beginPath();context.moveTo(landmarks[a].x*canvas.width,landmarks[a].y*canvas.height);context.lineTo(landmarks[b].x*canvas.width,landmarks[b].y*canvas.height);context.stroke()}}
       } catch(e) { if(!cancelled) setMessage((e as Error).message) } finally {pending=false}
-    },100)
+    },40)
     return ()=>{cancelled=true;window.clearInterval(timer);if(config.kind==='upload')video.pause()}
   },[recording,ready,epoch,overlapStart,config.id,config.kind,config.offsetMs,onFrame,onEnded])
   return <div className="capture-view">{showHeading && <div className="capture-view-heading">{config.kind==='camera'?<Camera size={15}/>:<Video size={15}/>}<strong>{config.id}</strong><span>{config.view==='auto'?'Estimate view':`${config.view} view`}</span></div>}<div className="capture-video"><video ref={videoRef} muted playsInline onEnded={()=>onEnded(config.id)} /><canvas ref={canvasRef}/><span className="capture-frame-count">{count} frames</span></div><p role="status">{message}</p></div>

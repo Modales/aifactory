@@ -126,9 +126,13 @@ def test_frontal_knee_deviation_reduces_visible_check_score():
 def test_gap_breaks_rep_continuity():
     rows=[{'t':i*200,'knee':v} for i,v in enumerate([170,170,150,110,90,90,100,160,170,170])]
     assert len(segments(rows,'knee'))==1
+    # A one-frame visibility flicker (constant on live cameras) must not lose the rep...
     rows[5]['knee']=None
+    assert len(segments(rows,'knee'))==1
+    # ...but the joint hidden for longer than MAX_GAP_MS does.
+    for r in rows[2:9]: r['knee']=None
     assert segments(rows,'knee')==[]
-    rows[5]['knee']=90
+    for r,v in zip(rows[2:9],[150,110,90,90,100,160,170]): r['knee']=v
     for r in rows[5:]:r['t']+=2000
     assert segments(rows,'knee')==[]
 
@@ -623,3 +627,39 @@ def test_llm_rechecks_an_early_answer_as_the_set_grows_then_settles():
     assert detector(window(10),det,LIBRARY,segments,'s')['exerciseId']=='leg_press' # grown → asked again, corrected
     assert detector(window(17),det,LIBRARY,segments,'s')['exerciseId']=='leg_press' # grown again → confirmed
     assert detector(window(40),det,LIBRARY,segments,'s')['exerciseId']=='leg_press' and len(calls)==3  # settled
+
+
+# ─── Live stability: flicker-tolerant reps, mover gate, full-cycle wait, session lock ────────
+def test_reps_survive_frequent_visibility_flicker():
+    from app.analysis.engine import count_reps
+    rows=_rep_rows(60,3,elbow=(170,85),trunk=80,hip=170,knee=175,wristY=(-1,-.4),hipAnkle=.2)
+    for i,r in enumerate(rows):
+        if i%4==1: r['elbow']=None       # a quarter of frames drop below the visibility threshold
+    found,signal=count_reps(LIBRARY['pushup'],{'id':'c','view':'side','rows':rows})
+    assert len(found)==3 and signal=='elbow'
+
+
+def test_spec_whose_primary_joint_is_still_is_not_a_candidate():
+    detection=classify([{'id':'c','view':'side','rows':synthetic_rows('curl')}])
+    ids={c['id'] for c in detection['candidates']}
+    # A curl moves the elbow; hip- and knee-driven specs must not be ranked at all.
+    assert all(LIBRARY[i]['primary'] not in ('hip','knee') for i in ids), ids
+
+
+def test_auto_detection_waits_for_one_complete_rep():
+    s=squat_stream(); s['frames']=s['frames'][:18]      # the descent and part of the ascent only
+    result=analyze(payload(streams=[s]))
+    assert result['exercise'] is None and result['candidates'] and result['candidates'][0]['id']=='squat'
+    assert analyze(payload())['exercise']=='squat'
+
+
+def test_detected_exercise_is_held_for_the_session():
+    from app.analysis.engine import hold
+    key='hold-test'
+    assert hold(key,'squat',.8,'detected',None)[0]=='squat'
+    assert hold(key,None,0,'detected',None)[0]=='squat'           # an ambiguous window never erases it
+    assert hold(key,'lunge',.7,'detected',None)[0]=='squat'
+    assert hold(key,'lunge',.7,'detected',None)[0]=='squat'
+    assert hold(key,'lunge',.7,'detected',None)[0]=='lunge'        # three in a row switches
+    assert hold(key,'squat',.8,'detected',None)[0]=='lunge'
+    assert hold(None,'curl',.8,'detected',None)[0]=='curl'

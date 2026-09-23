@@ -15,7 +15,7 @@ import { emptyMuscleLoad } from '@/lib/muscleModel'
 import { useAuth } from '@/lib/authContext'
 
 type Stage = 'setup' | 'recording' | 'review'
-const MAX_FRAMES = 1800
+const MAX_FRAMES = 2700   // ~8 fps for the full six minutes; must match the server's per-camera cap
 const MAX_SECONDS = 360
 const LIVE_INTERVAL_MS = 2500
 

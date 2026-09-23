@@ -26,7 +26,7 @@ class CameraStream(BaseModel):
     aspectRatio: float = Field(gt=0.1, le=10)
     # Common timeline = clip timestamp + offset; required calibration for separate clips.
     offsetMs: float = Field(default=0, ge=-3_600_000, le=3_600_000)
-    frames: list[Frame] = Field(min_length=1, max_length=1800)
+    frames: list[Frame] = Field(min_length=1, max_length=2700)
 
     @model_validator(mode='after')
     def increasing_time(self):

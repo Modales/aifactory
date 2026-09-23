@@ -9,6 +9,7 @@ rep is graded 0–100 on the spec's templated checks with cues that quote the me
 NOT uncalibrated 3D triangulation.
 """
 from statistics import median
+from time import time
 from .features import angle, extrema_envelope, features, stat, values, percentile  # noqa: F401 (angle re-exported for tests)
 from .library import DEFAULT_SCALE, FAMILIES, LIBRARY, SCALE
 from .schemas import AnalysisRequest
@@ -17,6 +18,8 @@ VERSION = 'pose-rules-2.0'
 DETECT_THRESHOLD = .68
 MIN_DETECT_MS = 1000
 MIN_DETECT_ROWS = 8
+MAX_GAP_MS = 1500       # a joint hidden for longer than this ends the rep in progress
+MOVER_SHARE = .5        # a spec's primary joint must move at least this share of the busiest joint
 DISCLAIMER = 'Experimental 2D movement estimates, not medical advice or a safety verdict. Scores cover only visible checks, not overall technique. Equipment, load, pain and spinal curvature cannot be determined from landmarks.'
 NAMES = {id: spec['name'] for id, spec in LIBRARY.items()}
 
@@ -77,11 +80,17 @@ def classify(cameras, library=None):
         rows = camera['rows']
         if camera['view'] not in ('side', 'frontal') or len(rows) < MIN_DETECT_ROWS or rows[-1]['t'] - rows[0]['t'] < MIN_DETECT_MS:
             continue
-        moving = [_stat2(rows, k, 'range') for k in ('knee', 'hip', 'elbow', 'shoulder', 'trunk', 'ankle')]
-        if not any(v is not None and v >= 15 for v in moving):
+        moving = {k: _stat2(rows, k, 'range') for k in ('knee', 'hip', 'elbow', 'shoulder', 'trunk', 'ankle')}
+        moving = {k: v for k, v in moving.items() if v is not None}
+        busiest = max(moving.values(), default=0)
+        if busiest < 15:
             continue
         for spec in library.values():
             if spec['variantOf'] or camera['view'] not in spec['views']:
+                continue
+            # The joint that defines a spec must be one of the joints actually doing the work:
+            # a still hip cannot be a kettlebell swing just because the other bands happen to fit.
+            if spec['primary'] in moving and moving[spec['primary']] < MOVER_SHARE * busiest:
                 continue
             score = match(spec, camera)
             if score is not None:
@@ -109,17 +118,20 @@ def segments(rows, key='knee', rest=150, work=125, cycle='flex', min_seconds=.7)
     """Hysteresis gates on the primary signal; only rest → work → rest cycles count.
 
     ``flex`` cycles rest at a high angle (squat, curl); ``extend`` cycles rest low (leg extension,
-    lateral raise). A gap in visibility or a 15 s stall resets the state machine.
+    lateral raise). Frames where the joint is hidden are skipped; only a visibility gap longer
+    than ``MAX_GAP_MS`` or a 15 s stall resets the state machine.
     """
     sign = 1 if cycle == 'flex' else -1
     start, low, last_t, window, result = None, False, None, [], []
     for row in rows:
         value = row.get(key)
-        if value is None or (last_t is not None and row['t'] - last_t > 800):
+        if value is None:
+            # Live landmarks flicker below the visibility threshold for a frame or two all the
+            # time; skipping them (rather than resetting) keeps the rep in progress.
+            continue
+        if last_t is not None and row['t'] - last_t > MAX_GAP_MS:
             start, low, window = None, False, []
         last_t = row['t']
-        if value is None:
-            continue
         window = (window + [value])[-3:]
         value = median(window)
         at_rest, in_work = sign * value >= sign * rest, sign * value < sign * work
@@ -207,21 +219,44 @@ def count_reps(spec, camera):
     if not proxy:
         return [], key
     proxy_key, min_range, _ = proxy
-    envelope = extrema_envelope(rows, proxy_key, min_range)
+    gates = self_gates(rows, proxy_key, min_range)
+    if not gates:
+        return [], key
+    return segments(rows, proxy_key, *gates, spec['minSeconds']), proxy_key
+
+
+def self_gates(rows, key, min_range):
+    """(rest, work, cycle) derived purely from a signal's own observed range, or None if it barely moves."""
+    envelope = extrema_envelope(rows, key, min_range)
     if envelope is None:
-        lo, hi = stat(rows, proxy_key, 'p10', MIN_COVERAGE), stat(rows, proxy_key, 'p90', MIN_COVERAGE)
+        lo, hi = stat(rows, key, 'p10', MIN_COVERAGE), stat(rows, key, 'p90', MIN_COVERAGE)
         if lo is None or hi - lo < min_range:
-            return [], key
+            return None
     else:
         lo, hi = envelope
-    start = stat(rows, proxy_key, 'start', MIN_COVERAGE)
+    start = stat(rows, key, 'start', MIN_COVERAGE)
     if start is None:
-        return [], key
+        return None
     span = hi - lo
     cycle = 'flex' if start >= (lo + hi) / 2 else 'extend'    # rest at the high end, or at the low end
     rest = hi - .25 * span if cycle == 'flex' else lo + .25 * span
     work = lo + .4 * span if cycle == 'flex' else hi - .4 * span
-    return segments(rows, proxy_key, rest, work, cycle, spec['minSeconds']), proxy_key
+    return rest, work, cycle
+
+
+def full_cycle(cameras):
+    """True once any joint has completed one rest → work → rest cycle.
+
+    Auto-detection waits for this: half a rep (a descent, an arm lifting) fits many specs
+    equally well, and committing to a guess that early is what made detections look random.
+    """
+    keys = ('knee', 'hip', 'elbow', 'shoulder', 'ankle', 'trunk') + tuple(OTHER_SIDE.values())
+    for camera in cameras:
+        for key in keys:
+            gates = self_gates(camera['rows'], key, MIN_RANGE)
+            if gates and segments(camera['rows'], key, *gates, .3):
+                return True
+    return False
 
 
 def side_swapped(camera, key, other):
@@ -365,6 +400,41 @@ def resolve(cameras, detection, library, detector, session_key):
     return PROPOSED, opinion['confidence'], {**library, PROPOSED: spec}, proposal, opinion['reason']
 
 
+SWITCH_AFTER = 3            # consecutive disagreeing evaluations before a detected exercise changes
+LOCK_TTL = 15 * 60
+_locks: dict[str, dict] = {}
+
+
+def hold(session_key, exercise, confidence, source, note):
+    """Keep one auto-detected exercise per recording session.
+
+    The live loop re-classifies the whole set every few seconds; without memory, every window
+    that happens to fit another spec slightly better flips the label (and the rep count with it).
+    A detection sticks until a *different* exercise wins ``SWITCH_AFTER`` evaluations in a row;
+    an ambiguous window never erases it. Returns (exercise, confidence, source, note).
+    """
+    if not session_key:
+        return exercise, confidence, source, note
+    now = time()
+    for key in [k for k, v in _locks.items() if now - v['at'] > LOCK_TTL]:
+        del _locks[key]
+    lock = _locks.get(session_key)
+    if lock is None or lock['exercise'] == exercise:
+        if exercise and exercise != PROPOSED:
+            _locks[session_key] = {'exercise': exercise, 'confidence': confidence, 'source': source, 'note': note,
+                                   'challenger': None, 'streak': 0, 'at': now}
+        return exercise, confidence, source, note
+    lock['at'] = now
+    if exercise and exercise != PROPOSED:
+        lock['streak'] = lock['streak'] + 1 if lock['challenger'] == exercise else 1
+        lock['challenger'] = exercise
+        if lock['streak'] >= SWITCH_AFTER:
+            _locks[session_key] = {'exercise': exercise, 'confidence': confidence, 'source': source, 'note': note,
+                                   'challenger': None, 'streak': 0, 'at': now}
+            return exercise, confidence, source, note
+    return lock['exercise'], lock['confidence'], lock['source'], lock['note']
+
+
 def analyze(payload: AnalysisRequest, library=None, detector=None, coach=None):
     library = library or LIBRARY
     cameras = [features(s) for s in payload.streams]
@@ -387,13 +457,20 @@ def analyze(payload: AnalysisRequest, library=None, detector=None, coach=None):
     if payload.confirmedExercise:
         exercise, source = payload.confirmedExercise, 'confirmed'
     else:
-        exercise, resolved_confidence, library, proposal, note = resolve(cameras, detection, library, detector, payload.sessionKey)
-        if note is not None:
-            confidence, source = resolved_confidence, 'llm'
-            if exercise:
-                candidate = exercise
-                if exercise != PROPOSED and not any(c['id'] == exercise for c in detection['candidates']):
-                    detection['candidates'].insert(0, {'id': exercise, 'name': library[exercise]['name'], 'score': resolved_confidence})
+        exercise = None
+        if full_cycle(cameras):
+            exercise, resolved_confidence, library, proposal, note = resolve(cameras, detection, library, detector, payload.sessionKey)
+            if note is not None:
+                confidence, source = resolved_confidence, 'llm'
+        exercise, confidence, source, note = hold(payload.sessionKey, exercise, confidence, source, note)
+        if exercise not in library and exercise != PROPOSED:
+            exercise = None     # a held custom exercise that has since been deleted
+        if exercise:
+            candidate = exercise
+            if exercise != PROPOSED and not any(c['id'] == exercise for c in detection['candidates']):
+                detection['candidates'].insert(0, {'id': exercise, 'name': library[exercise]['name'], 'score': confidence})
+        if exercise != PROPOSED:
+            proposal = None if exercise else proposal
     if payload.confirmedExercise and candidate and root(candidate, library) != root(exercise, library) and confidence >= DETECT_THRESHOLD:
         warnings.append(f"Observed movement looks more like {library[candidate]['name'].lower()} than the confirmed exercise. Verify your selection before saving.")
 

@@ -18,7 +18,7 @@ async def capabilities(request: Request):
     detector = getattr(request.app.state, 'exercise_detector', None)
     return {'modelVersion': VERSION, 'exercises': {id: s['name'] for id, s in LIBRARY.items()}, 'families': FAMILIES,
             'llmDetection': bool(detector and detector.available), 'llmCoach': bool(detector and detector.available), 'detectModel': detector.model if detector and detector.available else None,
-            'exerciseCount': len(LIBRARY), 'maxCameras': 3, 'maxFramesPerCamera': 1800,
+            'exerciseCount': len(LIBRARY), 'maxCameras': 3, 'maxFramesPerCamera': 2700,
             'input': '33 normalized MediaPipe landmarks per timestamp', 'validated': False}
 
 
