@@ -74,6 +74,7 @@ class WorkoutSessionRecord(Base):
     peak_effort: Mapped[float] = mapped_column(Float)
     muscle_load: Mapped[dict] = mapped_column(JSON, default=dict)
     reps: Mapped[list] = mapped_column(JSON)
+    caption: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     __table_args__ = (Index("ix_workout_sessions_user_created", "user_id", "created_at"),)

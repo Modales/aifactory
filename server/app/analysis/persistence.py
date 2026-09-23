@@ -24,3 +24,12 @@ def apply_report(payload: EndSessionPayload, result: dict) -> None:
         formScore=r['score'], cue=' '.join(r['feedback']) or 'Visible checks passed; unobserved technique is not assessed.',
         severity='good' if r['score'] >= 80 else 'warn' if r['score'] >= 50 else 'crit', flaws=[c['name'] for c in r['checks'] if not c['passed']],
     ) for r in result['reps'] if r['score'] is not None]
+
+
+def session_from_report(result: dict, workout_id: str | None = None) -> EndSessionPayload:
+    """A fully derived session payload from a scored report — never caller-supplied numbers."""
+    payload = EndSessionPayload(
+        workoutId=workout_id, exerciseId='', exerciseName='', cameraAngle='',
+        durationSeconds=0, totalReps=0, avgFormScore=0, peakEffort=0, reps=[])
+    apply_report(payload, result)
+    return payload
