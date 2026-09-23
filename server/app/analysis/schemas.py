@@ -60,3 +60,7 @@ class TeachExerciseRequest(BaseModel):
     family: str | None = Field(default=None, max_length=40)
     streams: list[CameraStream] = Field(min_length=1, max_length=3)
     synchronized: bool = False
+
+
+class CalibrationConsentRequest(BaseModel):
+    accepted: bool

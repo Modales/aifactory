@@ -26,4 +26,7 @@ export const forgetExercise = (id: ExerciseId) => request<void>(`/api/analysis/e
 export const evaluate = (streams: CameraStream[], confirmedExercise: ExerciseId | null, synchronized: boolean, persist = false, sessionKey?: string) => request<AnalysisReport>('/api/analysis/evaluate', { method:'POST', body:{streams, confirmedExercise, synchronized, persist, sessionKey} })
 
 /** Human unit suffix for a measured check value ("96°", "1.2 s", "0.4 stance widths"). */
+export interface CalibrationConsent { termsVersion: string; decided: boolean; accepted: boolean; recordings: number }
+export const fetchCalibrationConsent = () => request<CalibrationConsent>('/api/analysis/calibration/consent')
+export const setCalibrationConsent = (accepted: boolean) => request<CalibrationConsent>('/api/analysis/calibration/consent', { method: 'PUT', body: { accepted } })
 export const formatMeasure = (value: number, units: string) => units === 'degrees' ? `${value}°` : units === '%' ? `${value}%` : `${value} ${units}`

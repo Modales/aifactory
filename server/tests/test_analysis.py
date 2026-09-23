@@ -663,3 +663,19 @@ def test_detected_exercise_is_held_for_the_session():
     assert hold(key,'lunge',.7,'detected',None)[0]=='lunge'        # three in a row switches
     assert hold(key,'squat',.8,'detected',None)[0]=='lunge'
     assert hold(None,'curl',.8,'detected',None)[0]=='curl'
+
+
+async def test_calibration_recording_needs_consent_and_declining_erases(auth_client):
+    body=payload(streams=[squat_stream()],persist=True,sessionKey='set-1').model_dump()
+    assert (await auth_client.get('/api/analysis/calibration/consent')).json()['decided'] is False
+    assert (await auth_client.post('/api/analysis/evaluate',json=body)).json()['recordedForCalibration'] is False
+    agreed=await auth_client.put('/api/analysis/calibration/consent',json={'accepted':True})
+    assert agreed.json()['accepted'] is True
+    assert (await auth_client.post('/api/analysis/evaluate',json=body)).json()['recordedForCalibration'] is True
+    # Re-scoring the same set as a confirmed exercise updates the one row instead of adding another.
+    await auth_client.post('/api/analysis/evaluate',json={**body,'confirmedExercise':'squat'})
+    live=await auth_client.post('/api/analysis/evaluate',json={**body,'persist':False})
+    assert 'recordedForCalibration' not in live.json()
+    assert (await auth_client.get('/api/analysis/calibration/consent')).json()['recordings']==1
+    declined=await auth_client.put('/api/analysis/calibration/consent',json={'accepted':False})
+    assert declined.json()=={'termsVersion':declined.json()['termsVersion'],'decided':True,'accepted':False,'recordings':0}

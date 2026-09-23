@@ -2,7 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 from ..activity.service import user_library
-from ..analysis.schemas import AnalysisRequest, TeachExerciseRequest
+from ..analysis import calibration
+from ..analysis.schemas import AnalysisRequest, CalibrationConsentRequest, TeachExerciseRequest
 from ..analysis.engine import PROPOSED, analyze, learn_from, VERSION
 from ..analysis.library import FAMILIES, LIBRARY, MUSCLE_IDS, catalog
 from ..database import get_db
@@ -76,7 +77,23 @@ async def evaluate(payload: AnalysisRequest, request: Request, user: UserRecord 
         await db.commit()
         await db.refresh(record)
         result = {**result, 'analysisId': record.id}
+    if payload.persist:
+        result = {**result, 'recordedForCalibration': await calibration.record_set(db, user.id, payload, result, VERSION)}
     return result
+
+
+@router.get('/calibration/consent')
+async def calibration_consent(user: UserRecord = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    record = await calibration.consent(db, user.id)
+    return {'termsVersion': calibration.TERMS_VERSION, 'decided': record is not None, 'accepted': bool(record and record.accepted),
+            'recordings': await calibration.recording_count(db, user.id)}
+
+
+@router.put('/calibration/consent')
+async def update_calibration_consent(payload: CalibrationConsentRequest, user: UserRecord = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    record = await calibration.set_consent(db, user.id, payload.accepted)
+    return {'termsVersion': calibration.TERMS_VERSION, 'decided': True, 'accepted': record.accepted,
+            'recordings': await calibration.recording_count(db, user.id)}
 
 
 @router.get('/reports/{report_id}')

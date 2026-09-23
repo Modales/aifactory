@@ -91,6 +91,35 @@ class AnalysisRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
+class CalibrationConsentRecord(Base):
+    """The athlete's yes/no to storing body-point data from their sets for detector calibration."""
+    __tablename__ = "calibration_consents"
+
+    user_id: Mapped[str] = mapped_column(String, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    accepted: Mapped[bool] = mapped_column(Boolean)
+    terms_version: Mapped[str] = mapped_column(String(20))
+    decided_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class CalibrationRecordingRecord(Base):
+    """One recorded set: raw landmark streams + what the detector said + what the athlete confirmed."""
+    __tablename__ = "calibration_recordings"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_new_id)
+    user_id: Mapped[str] = mapped_column(String, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    session_key: Mapped[str] = mapped_column(String(80))
+    model_version: Mapped[str] = mapped_column(String(40))
+    streams: Mapped[list] = mapped_column(JSON)
+    confirmed_exercise: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    detected_exercise: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    rep_count: Mapped[int] = mapped_column(Integer)
+    summary: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+    __table_args__ = (Index("ux_calibration_user_session", "user_id", "session_key", unique=True),)
+
+
 class CustomExerciseRecord(Base):
     """An exercise the athlete taught from their own reps; ``spec`` is a full library spec."""
     __tablename__ = "custom_exercises"

@@ -9,6 +9,7 @@ import SetupPanel from './SetupPanel'
 import LiveHud from './LiveHud'
 import SavePanel from './SavePanel'
 import TeachExercisePanel from './TeachExercisePanel'
+import CalibrationConsent from './CalibrationConsent'
 import { evaluate, fetchLibrary, teachExercise, PROPOSED, type AnalysisFrame, type AnalysisReport, type CameraStream, type ExerciseId, type ExerciseLibrary } from '@/lib/analysisApi'
 import { api } from '@/lib/api'
 import { emptyMuscleLoad } from '@/lib/muscleModel'
@@ -188,6 +189,7 @@ export default function AnalysisStudio() {
         </div>
 
         {!signedIn && <section className="record-card pad signin-card"><p>Sign in to record, score and save your sets.</p><Link to="/login" state={{ from: '/session' }} className="solid-button">Sign in</Link><Link to="/signup" className="ghost-button">Create account</Link></section>}
+        {signedIn && stage === 'setup' && <CalibrationConsent />}
         {error && <div className="record-error" role="alert">{error}</div>}
 
         <div>
