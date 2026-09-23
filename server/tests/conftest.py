@@ -69,6 +69,11 @@ class StubCoach:
         )
 
 
+@pytest.fixture(autouse=True)
+def isolate_env(monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+
 @pytest.fixture
 def coach():
     return StubCoach()
