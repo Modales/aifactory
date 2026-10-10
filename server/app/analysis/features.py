@@ -159,7 +159,11 @@ def stat(rows, key, name, coverage=.6):
     if len(items) < max(4, len(rows) * coverage):
         return None
     if name == 'range':
-        return percentile(items, .9) - percentile(items, .1)
+        # Measured on the same trailing median-of-3 the segmenter uses: frame-to-frame landmark
+        # jitter on a joint that is holding still must not read as travel (it made a soft-kneed
+        # RDL look like a deadlift and gave still joints phantom motion that eroded confidence).
+        smooth = [median(items[max(0, i - 2):i + 1]) for i in range(len(items))]
+        return percentile(smooth, .9) - percentile(smooth, .1)
     if name == 'median':
         return median(items)
     if name == 'p10':

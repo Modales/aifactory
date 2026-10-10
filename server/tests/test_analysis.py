@@ -550,3 +550,45 @@ def test_learn_from_rest_heavy_set_derives_gates_that_still_count_reps():
     camera=featurize(payload(streams=[stream]).streams[0])
     found,signal=count_reps(spec,camera)
     assert len(found)==2 and signal=='knee'
+
+
+# ─── Robustness: landmark jitter and irregular tempo ─────────────────────────────────────────
+def _jittered(rows, degrees=8, seed=3):
+    """Uniform per-frame jitter like real webcam landmarks: ±degrees on angles, ±1% on ratios."""
+    import random
+    rng=random.Random(seed)
+    return [{k:(v+rng.uniform(-degrees,degrees)*(.01 if abs(v)<5 else 1)) if isinstance(v,(int,float)) and not isinstance(v,bool) and k!='t' else v
+             for k,v in r.items()} for r in rows]
+
+
+def _set(exercise, frame_counts):
+    rows=[];t=0
+    for n in frame_counts:
+        for r in synthetic_rows(exercise,n): rows.append({**r,'t':t}); t+=200
+    return rows
+
+
+@pytest.mark.parametrize('exercise',FAMILY_SAMPLES)
+def test_jittered_landmarks_still_identify_and_count_every_rep(exercise):
+    from app.analysis.engine import count_reps
+    view='frontal' if exercise=='lateral_raise' else 'side'
+    camera={'id':'c','view':view,'rows':_jittered(_set(exercise,[20]*5))}
+    detection=classify([camera])
+    assert detection['exercise']==exercise and detection['confidence']>=.68, detection['candidates'][:3]
+    assert len(count_reps(LIBRARY[exercise],camera)[0])==5
+
+
+@pytest.mark.parametrize('exercise',FAMILY_SAMPLES)
+def test_irregular_tempo_counts_fast_and_slow_reps(exercise):
+    from app.analysis.engine import count_reps
+    view='frontal' if exercise=='lateral_raise' else 'side'
+    camera={'id':'c','view':view,'rows':_jittered(_set(exercise,[12,25,16,30,10]),6,5)}
+    assert classify([camera])['exercise']==exercise
+    assert len(count_reps(LIBRARY[exercise],camera)[0])==5
+
+
+def test_jitter_on_soft_knees_does_not_turn_an_rdl_into_a_deadlift():
+    from app.analysis.features import stat
+    rows=_jittered(_set('romanian_deadlift',[20]*5),4,1)
+    assert stat(rows,'knee','range')<12          # still knees read as still despite ±4° jitter
+    assert classify([{'id':'c','view':'side','rows':rows}])['exercise']=='romanian_deadlift'

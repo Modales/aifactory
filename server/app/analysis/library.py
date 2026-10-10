@@ -142,7 +142,7 @@ ex('pistol_squat', 'Pistol squat', 'lunge', 'knee', FLEX, 150, 120,
 
 # ─── Hinges ────────────────────────────────────────────────────────────────────────────────────
 ex('deadlift', 'Deadlift', 'hinge', 'hip', FLEX, 155, 120,
-   [('hip', 'range', 35, 120), ('knee', 'range', 10, 70), ('trunk', 'range', 25, 90), ('trunk', 'p90', 45, 95), still_elbows, ('wristHip', 'median', -1.2, .1), standing, ('hipAnkle', 'range', 0, .9)],
+   [('hip', 'range', 35, 120), ('knee', 'range', 22, 70), ('trunk', 'range', 25, 90), ('trunk', 'p90', 45, 95), still_elbows, ('wristHip', 'median', -1.2, .1), standing, ('hipAnkle', 'range', 0, .9)],
    [depth('Hip hinge depth', 115, 35, 'Hips hinged to {v}° — full hinge.', 'Hips only hinged to {v}°, {d}° short of {t}°. Push the hips back further before bending the knees.'),
     lockout('Hip lockout', 155, 25, 'Hips locked out at {v}°.', 'Hips finished at {v}°, {d}° short of lockout. Stand tall and squeeze the glutes at the top.'),
     check('Knee bend', 'knee', 'p10', 100, 30, 'min', 'Knees bent to {v}° — shins stayed fairly vertical.', 'Knees bent to {v}°, {d}° more than a hinge needs. This is drifting toward a squat — keep shins vertical, hips back.'),
