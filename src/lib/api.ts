@@ -78,6 +78,13 @@ export interface SocialActivity {
   createdAt: string
 }
 
+export interface SocialComment {
+  id: string
+  author: SocialAuthor
+  body: string
+  createdAt: string
+}
+
 export interface SocialFeed {
   items: SocialActivity[]
   limit: number
@@ -269,6 +276,12 @@ export const api = {
     request<SocialActivity>('/api/social/activities', { method: 'POST', body: payload }),
   clubs: () => request<SocialClub[]>('/api/social/clubs'),
   challenges: () => request<SocialChallenge[]>('/api/social/challenges'),
+  comments: (activityId: string) =>
+    request<SocialComment[]>(`/api/social/activities/${activityId}/comments`),
+  addComment: (activityId: string, body: string) =>
+    request<SocialComment>(`/api/social/activities/${activityId}/comments?body=${encodeURIComponent(body)}`, { method: 'POST' }),
+  deleteComment: (activityId: string, commentId: string) =>
+    request<void>(`/api/social/activities/${activityId}/comments/${commentId}`, { method: 'DELETE' }),
   reactToActivity: (activityId: string) =>
     request<SocialActivity>(`/api/social/activities/${activityId}/reaction`, { method: 'PUT' }),
   joinClub: (clubId: string) =>

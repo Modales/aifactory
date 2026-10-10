@@ -18,6 +18,7 @@ import WorkspaceHeader from '@/components/WorkspaceHeader'
 import OnboardingWizard from '@/components/OnboardingWizard'
 import WorkoutVolumeTrend from '@/components/WorkoutVolumeTrend'
 import MuscleHeatmap from '@/components/MuscleHeatmap'
+import CommentThread from '@/components/CommentThread'
 const MuscleAnalysis3D = lazy(() => import('@/components/anatomy/MuscleAnalysis3D'))
 import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
@@ -47,7 +48,8 @@ function Stat({ label, value, accent = false }: { label: string; value: string; 
   )
 }
 
-function FeedCard({ item, onReact, onAnatomy }: { item: SocialActivity; onReact: (id: string) => void; onAnatomy: (item: SocialActivity) => void }) {
+function FeedCard({ item, currentUserId, onReact, onAnatomy, onCommentCount }: { item: SocialActivity; currentUserId: string | undefined; onReact: (id: string) => void; onAnatomy: (item: SocialActivity) => void; onCommentCount: (id: string, delta: number) => void }) {
+  const [showComments, setShowComments] = useState(false)
   return (
     <article className="border-2 border-foreground bg-card">
       <div className="flex items-start justify-between border-b border-foreground/20 p-4">
@@ -87,10 +89,11 @@ function FeedCard({ item, onReact, onAnatomy }: { item: SocialActivity; onReact:
         <button type="button" onClick={() => onReact(item.id)} className={`flex flex-1 items-center justify-center gap-2 border-r-2 border-foreground py-3 text-xs font-bold transition-colors ${item.reactedByMe ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}>
           <Heart className={`h-4 w-4 ${item.reactedByMe ? 'fill-current' : ''}`} /> {item.reactionCount} KUDOS
         </button>
-        <button type="button" className="flex flex-1 items-center justify-center gap-2 py-3 text-xs font-bold hover:bg-muted">
+        <button type="button" aria-expanded={showComments} onClick={() => setShowComments((open) => !open)} className={`flex flex-1 items-center justify-center gap-2 py-3 text-xs font-bold transition-colors ${showComments ? 'bg-foreground text-background' : 'hover:bg-muted'}`}>
           <MessageCircle className="h-4 w-4" /> {item.commentCount} COMMENTS
         </button>
       </div>
+      {showComments && <CommentThread activityId={item.id} activityOwnerId={item.author.id} currentUserId={currentUserId} onCountChange={(delta) => onCommentCount(item.id, delta)} />}
     </article>
   )
 }
@@ -119,7 +122,11 @@ export default function Terminal() {
   }, [location.hash])
 
   useEffect(() => {
-    if (status !== 'authenticated') return
+    const changeCommentCount = (activityId: string, delta: number) => {
+    setFeed((current) => current.map((item) => item.id === activityId ? { ...item, commentCount: Math.max(0, item.commentCount + delta) } : item))
+  }
+
+  if (status !== 'authenticated') return
     let cancelled = false
     Promise.all([api.stats(), api.history({ limit: 100 }), api.socialFeed({ limit: 30 }), api.clubs(), api.challenges()])
       .then(([nextStats, history, nextFeed, nextClubs, nextChallenges]) => {
@@ -166,7 +173,7 @@ export default function Terminal() {
 
           <div id="social" className="mt-8 flex scroll-mt-20 items-center justify-between border-b-2 border-foreground pb-3"><div className="flex items-center gap-2"><Users className="h-4 w-4 text-primary" /><h2 className="text-lg font-black uppercase">Social / crew feed</h2></div><span className="mono-data text-[9px] tracking-[0.16em] text-muted-foreground">FOLLOWED ATHLETES + PUBLIC</span></div>
           <div className="mt-4 space-y-4">
-            {loading ? <div className="flex justify-center py-14"><Loader2 className="h-6 w-6 animate-spin" /></div> : feed.length > 0 ? feed.map((item) => <FeedCard key={item.id} item={item} onReact={react} onAnatomy={setAnatomyActivity} />) : <div className="border-2 border-dashed border-foreground p-8 text-center"><Users className="mx-auto h-6 w-6 text-primary" /><p className="mt-3 font-bold uppercase">Your crew feed is ready</p><p className="mx-auto mt-2 max-w-sm text-sm text-muted-foreground">Follow athletes or share your finished sets to start the conversation.</p><Link to="/session" className="mt-5 inline-block"><Button variant="outline" className="border-2 border-foreground font-bold">LOG A SET</Button></Link></div>}
+            {loading ? <div className="flex justify-center py-14"><Loader2 className="h-6 w-6 animate-spin" /></div> : feed.length > 0 ? feed.map((item) => <FeedCard key={item.id} item={item} currentUserId={user?.id} onReact={react} onAnatomy={setAnatomyActivity} onCommentCount={changeCommentCount} />) : <div className="border-2 border-dashed border-foreground p-8 text-center"><Users className="mx-auto h-6 w-6 text-primary" /><p className="mt-3 font-bold uppercase">Your crew feed is ready</p><p className="mx-auto mt-2 max-w-sm text-sm text-muted-foreground">Follow athletes or share your finished sets to start the conversation.</p><Link to="/session" className="mt-5 inline-block"><Button variant="outline" className="border-2 border-foreground font-bold">LOG A SET</Button></Link></div>}
           </div>
         </main>
 
