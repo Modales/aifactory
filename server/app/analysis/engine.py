@@ -9,7 +9,7 @@ rep is graded 0–100 on the spec's templated checks with cues that quote the me
 NOT uncalibrated 3D triangulation.
 """
 from statistics import median
-from .features import angle, extrema_envelope, features, stat, values, percentile  # noqa: F401 (angle re-exported for tests)
+from .features import angle, extrema_envelope, features, smoothed, stat, values, percentile  # noqa: F401 (angle re-exported for tests)
 from .library import DEFAULT_SCALE, FAMILIES, LIBRARY, SCALE
 from .insights import muscle_demand, set_insights
 from .schemas import AnalysisRequest
@@ -136,16 +136,14 @@ def segments(rows, key='knee', rest=150, work=125, cycle='flex', min_seconds=.7)
     lateral raise). A gap in visibility or a 15 s stall resets the state machine.
     """
     sign = 1 if cycle == 'flex' else -1
-    start, low, last_t, window, result = None, False, None, [], []
-    for row in rows:
-        value = row.get(key)
-        if value is None or (last_t is not None and row['t'] - last_t > 800):
-            start, low, window = None, False, []
-        last_t = row['t']
-        if value is None:
-            continue
-        window = (window + [value])[-3:]
-        value = median(window)
+    start, low, last_t, result = None, False, None, []
+    for t, value in smoothed(rows, key):
+        # Webcams drop a joint for a frame or two all the time (a push-up loses the elbow in ~30%
+        # of frames, a slow phone samples at 3 fps); only a sustained loss resets the rep.
+        if last_t is not None and t - last_t > GAP_MS:
+            start, low = None, False
+        last_t = t
+        row = {'t': t}
         at_rest, in_work = sign * value >= sign * rest, sign * value < sign * work
         if start is None:
             if at_rest:
@@ -161,6 +159,7 @@ def segments(rows, key='knee', rest=150, work=125, cycle='flex', min_seconds=.7)
     return result
 
 
+GAP_MS = 1500        # longest stretch without a reading that a rep survives
 MIN_RANGE = 20          # degrees the primary joint must travel before any rep can count
 MIN_COVERAGE = .5       # share of frames the primary joint must be visible in to drive counting
 # When the dominant-side joint is hidden or foreshortened, the same joint on the opposite side
@@ -280,7 +279,7 @@ def metric(spec, check, rows, seconds):
     if name == 'tempo':
         return seconds
     items = values(rows, key)
-    if len(items) < max(3, len(rows) * .8):
+    if len(items) < max(3, len(rows) * .5):
         return None
     if name == 'bottom':
         return percentile(items, .1) if flex else percentile(items, .9)
@@ -303,7 +302,7 @@ def metric(spec, check, rows, seconds):
         near = [r[key] for r in rows if r.get(key) is not None and r.get(spec['primary']) is not None
                 and abs(r[spec['primary']] - bottom) <= max(span * .2, 6)]
         return median(near) if near else None
-    return stat(rows, key, name, .8)
+    return stat(rows, key, name, .5)
 
 
 def evaluate_rep(spec, start, end, cameras):

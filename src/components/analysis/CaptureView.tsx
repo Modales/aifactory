@@ -65,7 +65,8 @@ export default function CaptureView({ config, recording, showHeading = true, epo
       if(cancelled || pending || video.paused || video.ended || video.readyState<2 || !estimatorRef.current) return
       if(video.currentTime===lastMedia.current) return
       const now=performance.now()
-      if(now-lastAt<180) return
+      // ~7 fps: at 5 fps a brisk push-up's bottom often falls between samples and the rep is missed.
+      if(now-lastAt<140) return
       pending=true; lastAt=now; lastMedia.current=video.currentTime
       const timestampMs = config.kind==='upload' ? video.currentTime*1000 : now-epoch
       try {

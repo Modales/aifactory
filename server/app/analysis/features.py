@@ -92,6 +92,25 @@ def features(stream: CameraStream):
     return {'id': stream.cameraId, 'view': view, 'viewSource': 'estimated' if stream.view == 'auto' else 'user-confirmed', 'rows': rows}
 
 
+SMOOTH_MS = 450   # median-of-3 only over frames this close together
+
+
+def smoothed(rows, key):
+    """(t, value) pairs of a signal with a trailing median-of-3 that only spans ~450 ms.
+
+    At 10+ fps three frames are pure jitter and the median removes it; at the 3–5 fps a busy
+    phone delivers, three frames span most of a rep and the median would erase its bottom.
+    """
+    out, window = [], []
+    for r in rows:
+        v = r.get(key)
+        if v is None:
+            continue
+        window = [(t, x) for t, x in window if r['t'] - t <= SMOOTH_MS][-2:] + [(r['t'], v)]
+        out.append((r['t'], median(x for _, x in window) if len(window) == 3 else v))
+    return out
+
+
 def values(rows, key):
     return [r[key] for r in rows if r.get(key) is not None]
 
@@ -111,10 +130,9 @@ def extrema_envelope(rows, key, min_range):
     trailing median-of-3 smoothing the segmenter uses; swings smaller than ``min_range`` are
     ignored, and the trailing (unconfirmed) extreme still counts, so one partial rep is enough.
     """
-    items = [r[key] for r in rows if r.get(key) is not None]
-    if len(items) < 5:
+    sm = [v for _, v in smoothed(rows, key)]
+    if len(sm) < 5:
         return None
-    sm = [median(items[max(0, i - 2):i + 1]) for i in range(len(items))]
     extrema = []                        # confirmed alternating extrema, (kind, value); kind +1 high, -1 low
     ext = run_hi = run_lo = sm[0]       # ext = extreme of the current leg
     trend = 0                           # +1 rising leg, -1 falling leg, 0 undecided

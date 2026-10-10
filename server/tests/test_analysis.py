@@ -126,10 +126,10 @@ def test_frontal_knee_deviation_reduces_visible_check_score():
 def test_gap_breaks_rep_continuity():
     rows=[{'t':i*200,'knee':v} for i,v in enumerate([170,170,150,110,90,90,100,160,170,170])]
     assert len(segments(rows,'knee'))==1
-    rows[5]['knee']=None
-    assert segments(rows,'knee')==[]
+    rows[5]['knee']=None                      # a one-frame dropout is bridged
+    assert len(segments(rows,'knee'))==1
     rows[5]['knee']=90
-    for r in rows[5:]:r['t']+=2000
+    for r in rows[5:]:r['t']+=2000            # a sustained loss (>1.5 s) resets the rep
     assert segments(rows,'knee')==[]
 
 
