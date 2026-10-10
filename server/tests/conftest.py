@@ -69,6 +69,13 @@ class StubCoach:
         )
 
 
+@pytest.fixture(autouse=True)
+def _no_real_openrouter_key(monkeypatch):
+    # Keep tests hermetic: never inherit the container's real key (and never call OpenRouter).
+    # Tests that exercise the LLM path set their own fake key.
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+
 @pytest.fixture
 def coach():
     return StubCoach()
