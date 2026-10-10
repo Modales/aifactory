@@ -6,7 +6,9 @@ import type { AnalysisFrame } from '@/lib/analysisApi'
 import type { CaptureConfig } from './captureConfig'
 export type { CaptureConfig }
 /** Off-frame joints come back far outside the image (even NaN); keep them finite and in the server's accepted range. */
-const clampCoord = (v: number) => Number.isFinite(v) ? Math.min(5, Math.max(-5, v)) : -5
+// Rounded to 4 decimals (~0.1 px): the whole set is re-sent on every live update, so full float precision bloated each request several-fold.
+const round4 = (v: number) => Math.round(v * 1e4) / 1e4
+const clampCoord = (v: number) => Number.isFinite(v) ? round4(Math.min(5, Math.max(-5, v))) : -5
 const BONES = [[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28]]
 interface Props { config: CaptureConfig; recording: boolean; showHeading?: boolean; epoch: number; overlapStart: number; onFrame: (id: string, frame: AnalysisFrame, aspect: number) => void; onReady: (id: string, ready: boolean, problem?: string) => void; onEnded: (id: string) => void }
 
@@ -70,10 +72,10 @@ export default function CaptureView({ config, recording, showHeading = true, epo
         const result=await estimatorRef.current.estimate(video,now)
         if(cancelled) return
         const canvas=canvasRef.current, context=canvas?.getContext('2d')
-        if(canvas && context) {canvas.width=video.videoWidth;canvas.height=video.videoHeight;context.clearRect(0,0,canvas.width,canvas.height)}
+        if(canvas && context) {if(canvas.width!==video.videoWidth||canvas.height!==video.videoHeight){canvas.width=video.videoWidth;canvas.height=video.videoHeight} context.clearRect(0,0,canvas.width,canvas.height)}
         if(result.poses.length!==1) {setMessage(result.poses.length ? 'Multiple people visible · scoring paused' : 'No athlete visible · scoring paused');return}
         const landmarks=result.poses[0].landmarks
-        onFrame(config.id,{timestampMs,landmarks:landmarks.map(p=>({x:clampCoord(p.x),y:clampCoord(p.y),visibility:Math.min(1,Math.max(0,p.visibility??0))}))},video.videoWidth/video.videoHeight)
+        onFrame(config.id,{timestampMs:Math.round(timestampMs),landmarks:landmarks.map(p=>({x:clampCoord(p.x),y:clampCoord(p.y),visibility:round4(Math.min(1,Math.max(0,p.visibility??0)))}))},video.videoWidth/video.videoHeight)
         setCount(c=>c+1);setMessage('Capturing landmarks · video stays on this device')
         if(canvas && context) {context.strokeStyle='#fc4c02';context.lineWidth=3; for(const [a,b] of BONES) {if((landmarks[a].visibility??0)<.55 || (landmarks[b].visibility??0)<.55) continue; context.beginPath();context.moveTo(landmarks[a].x*canvas.width,landmarks[a].y*canvas.height);context.lineTo(landmarks[b].x*canvas.width,landmarks[b].y*canvas.height);context.stroke()}}
       } catch(e) { if(!cancelled) setMessage((e as Error).message) } finally {pending=false}
