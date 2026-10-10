@@ -186,6 +186,19 @@ async def list_comments(activity_id: str, user: UserRecord = Depends(get_current
     return [ActivityComment(id=comment.id, author=_author(author), body=comment.body, createdAt=comment.created_at) for comment, author in rows]
 
 
+@router.delete("/activities/{activity_id}/comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete a comment")
+async def delete_comment(activity_id: str, comment_id: str, user: UserRecord = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    activity = await _get_visible_activity(db, activity_id, user.id)
+    record = await db.get(ActivityCommentRecord, comment_id)
+    if record is None or record.activity_id != activity.id:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    # The comment's author, or the athlete who owns the activity, may remove it.
+    if user.id not in (record.user_id, activity.user_id):
+        raise HTTPException(status_code=403, detail="You can only delete your own comments")
+    await db.delete(record)
+    await db.commit()
+
+
 async def _club_schema(db: AsyncSession, club: ClubRecord, user_id: str) -> Club:
     count = await db.scalar(select(func.count()).select_from(ClubMemberRecord).where(ClubMemberRecord.club_id == club.id)) or 0
     joined = await db.get(ClubMemberRecord, {"club_id": club.id, "user_id": user_id}) is not None

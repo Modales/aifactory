@@ -126,3 +126,20 @@ async def test_repeated_social_actions_are_idempotent(app_and_client):
     await client.put(f"/api/social/activities/{activity_id}/reaction", headers=viewer_headers)
     repeated = await client.put(f"/api/social/activities/{activity_id}/reaction", headers=viewer_headers)
     assert repeated.json()["reactionCount"] == 1
+
+
+async def test_comment_can_be_deleted_by_author_or_activity_owner_only(app_and_client):
+    _, client = app_and_client
+    owner = {"Authorization": f"Bearer {await _signup(client, 'owner@example.com', 'Owner')}"}
+    fan = {"Authorization": f"Bearer {await _signup(client, 'fan@example.com', 'Fan')}"}
+    other = {"Authorization": f"Bearer {await _signup(client, 'other@example.com', 'Other')}"}
+    activity_id = (await client.post("/api/social/activities", json={"caption": "PR day", "visibility": "public"}, headers=owner)).json()["id"]
+    url = f"/api/social/activities/{activity_id}/comments"
+    first = (await client.post(url, params={"body": "Nice"}, headers=fan)).json()["id"]
+    second = (await client.post(url, params={"body": "Spam"}, headers=fan)).json()["id"]
+
+    assert (await client.delete(f"{url}/{first}", headers=other)).status_code == 403
+    assert (await client.delete(f"{url}/{first}", headers=fan)).status_code == 204
+    assert (await client.delete(f"{url}/{second}", headers=owner)).status_code == 204
+    assert (await client.delete(f"{url}/{second}", headers=owner)).status_code == 404
+    assert (await client.get(url, headers=owner)).json() == []
