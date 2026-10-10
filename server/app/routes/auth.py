@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
 from ..config import Settings
 from ..database import get_db
@@ -10,6 +11,9 @@ from ..schemas import AuthToken, LoginPayload, PublicUser, SignupPayload
 from ..security import create_access_token, hash_password, verify_password
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+# Checked when the email is unknown so a miss costs the same time as a wrong password (no account probing).
+_DUMMY_HASH = hash_password("unused-dummy-password")
 
 
 def _to_public(user: UserRecord) -> PublicUser:
@@ -45,7 +49,7 @@ async def signup(
 
     user = UserRecord(
         email=email,
-        password_hash=hash_password(payload.password),
+        password_hash=await run_in_threadpool(hash_password, payload.password),
         display_name=payload.displayName,
     )
     db.add(user)
@@ -63,7 +67,9 @@ async def login(
     settings: Settings = Depends(get_settings),
 ):
     user = await db.scalar(select(UserRecord).where(UserRecord.email == payload.email.lower()))
-    if user is None or not verify_password(payload.password, user.password_hash):
+    # PBKDF2 is deliberately slow; run it off the event loop so logins don't stall live analysis.
+    valid = await run_in_threadpool(verify_password, payload.password, user.password_hash if user else _DUMMY_HASH)
+    if user is None or not valid:
         raise HTTPException(status_code=401, detail="Invalid email or password")
     return _issue_token(user, settings)
 
