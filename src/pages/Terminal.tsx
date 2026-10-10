@@ -122,11 +122,7 @@ export default function Terminal() {
   }, [location.hash])
 
   useEffect(() => {
-    const changeCommentCount = (activityId: string, delta: number) => {
-    setFeed((current) => current.map((item) => item.id === activityId ? { ...item, commentCount: Math.max(0, item.commentCount + delta) } : item))
-  }
-
-  if (status !== 'authenticated') return
+    if (status !== 'authenticated') return
     let cancelled = false
     Promise.all([api.stats(), api.history({ limit: 100 }), api.socialFeed({ limit: 30 }), api.clubs(), api.challenges()])
       .then(([nextStats, history, nextFeed, nextClubs, nextChallenges]) => {
@@ -147,6 +143,10 @@ export default function Terminal() {
   const react = async (activityId: string) => {
     const updated = await api.reactToActivity(activityId)
     setFeed((current) => current.map((item) => item.id === activityId ? updated : item))
+  }
+
+  const changeCommentCount = (activityId: string, delta: number) => {
+    setFeed((current) => current.map((item) => item.id === activityId ? { ...item, commentCount: Math.max(0, item.commentCount + delta) } : item))
   }
 
   if (status !== 'authenticated') return <div className="flex min-h-screen items-center justify-center"><Loader2 className="h-6 w-6 animate-spin" /></div>
