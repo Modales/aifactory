@@ -22,6 +22,13 @@ export default function Wearables() {
     if (status === 'anonymous') navigate('/login', { replace: true, state: { from: '/wearables' } })
   }, [status, navigate])
 
+  useEffect(() => {
+    if (!selected) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setSelected(null) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selected])
+
   if (status !== 'authenticated') return <div className="flex min-h-screen items-center justify-center"><Loader2 className="h-6 w-6 animate-spin" /></div>
 
   return (
@@ -45,7 +52,7 @@ export default function Wearables() {
         <section className="mt-8 grid gap-4 border-2 border-foreground bg-foreground p-5 text-background md:grid-cols-[auto_1fr] md:items-center"><div className="flex h-12 w-12 items-center justify-center border-2 border-background"><HeartPulse className="h-6 w-6 text-primary" /></div><div><p className="mono-data text-[9px] tracking-[0.2em] text-primary">WHAT GETS BETTER</p><p className="mt-1 text-sm">Workout intensity is enriched with real heart-rate response and recovery context—without sharing your health data in the social feed.</p></div></section>
       </main>
 
-      {selected && <div className="fixed inset-0 z-[70] flex items-end bg-foreground/50 p-4 sm:items-center sm:justify-center"><div className="w-full max-w-md border-2 border-foreground bg-background p-6 shadow-[8px_8px_0_hsl(var(--foreground))]"><div className="flex h-10 w-10 items-center justify-center bg-primary text-primary-foreground"><Lock className="h-4 w-4" /></div><h2 className="mt-5 text-2xl font-black uppercase">{selected}<br />connection ready.</h2><p className="mt-3 text-sm leading-relaxed text-muted-foreground">The secure connection flow is staged for this provider. Complete the provider setup when its developer credentials or native mobile companion are ready; your current training data stays private until then.</p><div className="mt-6 flex gap-3"><Button onClick={() => setSelected(null)} className="border-2 border-foreground font-bold">GOT IT <Check className="ml-2 h-4 w-4" /></Button><Link to="/dashboard"><Button variant="outline" className="border-2 border-foreground"><Smartphone className="mr-2 h-4 w-4" /> BACK TO DASHBOARD</Button></Link></div></div></div>}
+      {selected && <div className="fixed inset-0 z-[70] flex items-end bg-foreground/50 p-4 sm:items-center sm:justify-center" onClick={(e) => { if (e.target === e.currentTarget) setSelected(null) }}><div role="dialog" aria-modal="true" aria-label={`${selected} connection`} className="w-full max-w-md border-2 border-foreground bg-background p-6 shadow-[8px_8px_0_hsl(var(--foreground))]"><div className="flex h-10 w-10 items-center justify-center bg-primary text-primary-foreground"><Lock className="h-4 w-4" /></div><h2 className="mt-5 text-2xl font-black uppercase">{selected}<br />connection ready.</h2><p className="mt-3 text-sm leading-relaxed text-muted-foreground">The secure connection flow is staged for this provider. Complete the provider setup when its developer credentials or native mobile companion are ready; your current training data stays private until then.</p><div className="mt-6 flex gap-3"><Button onClick={() => setSelected(null)} className="border-2 border-foreground font-bold">GOT IT <Check className="ml-2 h-4 w-4" /></Button><Link to="/dashboard"><Button variant="outline" className="border-2 border-foreground"><Smartphone className="mr-2 h-4 w-4" /> BACK TO DASHBOARD</Button></Link></div></div></div>}
     </div>
   )
 }
