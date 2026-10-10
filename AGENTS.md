@@ -21,7 +21,7 @@ docker compose -f docker-compose.base44.yml up -d --build
 Verify: `curl -sf http://localhost:3000/` (frontend) and `curl -sf http://localhost:8000/docs` (backend).
 
 ## Tests
-- Frontend: `npm test` (vitest)
+- Frontend: `npm test` (vitest). Type check with `npm run typecheck` — `tsc --noEmit -p .` checks nothing (root `tsconfig.json` has `files: []` and only references the app/node configs), so it silently passes on real errors.
 - Backend: `cd server && python -m pytest` (uses SQLite via aiosqlite, no Postgres needed)
 
 ## Quirks
