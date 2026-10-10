@@ -31,7 +31,7 @@ export default function Wearables() {
       <main className="mx-auto max-w-7xl px-4 py-10 sm:py-16">
         <div className="max-w-2xl"><p className="mono-data text-[10px] tracking-[0.25em] text-primary">CONNECTED DEVICES / 04</p><h1 className="mt-3 text-4xl font-black uppercase leading-none sm:text-6xl">Train with the<br /><span className="font-serifit normal-case italic text-primary">full signal.</span></h1><p className="mt-5 max-w-xl text-muted-foreground">Connect the biometric signals around your lifts—then pair form, effort, and recovery in one training record.</p></div>
 
-        <section className="mt-10 grid gap-4 lg:grid-cols-3">
+        <section className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {providers.map((provider) => (
             <article key={provider.name} className="flex min-h-80 flex-col border-2 border-foreground bg-card p-5">
               <div className="flex items-start justify-between"><div className="flex h-12 w-12 items-center justify-center bg-foreground font-black text-background">{provider.short}</div>{provider.mobileOnly ? <span className="mono-data border border-foreground px-2 py-1 text-[8px] tracking-[0.14em]">IPHONE</span> : <span className="mono-data border border-foreground px-2 py-1 text-[8px] tracking-[0.14em]">OAUTH</span>}</div>
