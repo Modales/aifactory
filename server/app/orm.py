@@ -35,6 +35,18 @@ class UserRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
+class LoginFailureRecord(Base):
+    """One failed login. Shared by all API processes and survives restarts (brute-force limiter)."""
+
+    __tablename__ = "login_failures"
+    __table_args__ = (Index("ix_login_failures_email_at", "email", "at"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    email: Mapped[str] = mapped_column(String(320))
+    client_ip: Mapped[str] = mapped_column(String(64))
+    at: Mapped[float] = mapped_column(Float)  # epoch seconds
+
+
 class UserProfileRecord(Base):
     __tablename__ = "user_profiles"
 

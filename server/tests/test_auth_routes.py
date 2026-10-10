@@ -132,3 +132,70 @@ async def test_login_locks_out_after_repeated_failures(client):
     # Even the right password is refused while locked out.
     right = {"email": SIGNUP_PAYLOAD["email"], "password": SIGNUP_PAYLOAD["password"]}
     assert (await client.post("/api/auth/login", json=right)).status_code == 429
+
+
+async def _fail(ac, n, email=None):
+    wrong = {"email": email or SIGNUP_PAYLOAD["email"], "password": "wrong-password-123"}
+    return [(await ac.post("/api/auth/login", json=wrong)).status_code for _ in range(n)]
+
+
+def _client_from(app, ip):
+    from httpx import ASGITransport, AsyncClient
+    return AsyncClient(transport=ASGITransport(app=app, client=(ip, 1234)), base_url="http://test")
+
+
+async def test_lockout_is_per_ip_so_strangers_cannot_lock_the_owner_out(app_and_client):
+    app, owner = app_and_client
+    await owner.post("/api/auth/signup", json=SIGNUP_PAYLOAD)
+    async with _client_from(app, "203.0.113.9") as attacker:
+        assert await _fail(attacker, 6) == [401] * 5 + [429]
+    right = {"email": SIGNUP_PAYLOAD["email"], "password": SIGNUP_PAYLOAD["password"]}
+    assert (await owner.post("/api/auth/login", json=right)).status_code == 200
+
+
+async def test_lockout_caps_attempts_spread_across_many_ips(app_and_client, monkeypatch):
+    from app.routes import auth
+    monkeypatch.setattr(auth, "MAX_FAILED_LOGINS_PER_EMAIL", 4)
+    app, _ = app_and_client
+    for i in range(4):
+        async with _client_from(app, f"198.51.100.{i}") as ac:
+            assert await _fail(ac, 1) == [401]
+    async with _client_from(app, "198.51.100.99") as ac:
+        assert await _fail(ac, 1) == [429]
+
+
+async def test_lockout_survives_an_api_restart(tmp_path):
+    from httpx import ASGITransport, AsyncClient
+    from app.database import Base
+    from app.main import create_app
+    url = f"sqlite+aiosqlite:///{tmp_path / 'restart.db'}"
+    for attempt, expected in ((5, [401] * 5), (1, [429])):
+        app = create_app(url)
+        async with app.state.engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            assert await _fail(ac, attempt) == expected
+        await app.state.engine.dispose()
+
+
+def test_retry_after_waits_for_enough_attempts_to_expire():
+    from app.routes.auth import _retry_after
+    assert _retry_after([1.0, 2.0], 3, 10.0) is None
+    assert _retry_after([5.0, 1.0, 3.0], 3, 10.0) == int(1.0 + 900 - 10.0) + 1
+
+
+def test_production_requires_a_strong_jwt_secret(monkeypatch):
+    import pytest
+    from app.config import load_settings
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.delenv("JWT_SECRET", raising=False)
+    with pytest.raises(RuntimeError):
+        load_settings("sqlite+aiosqlite://")
+    monkeypatch.setenv("JWT_SECRET", "short")
+    with pytest.raises(RuntimeError):
+        load_settings("sqlite+aiosqlite://")
+    monkeypatch.setenv("JWT_SECRET", "x" * 40)
+    assert load_settings("sqlite+aiosqlite://").jwt_secret == "x" * 40
+    monkeypatch.delenv("APP_ENV")
+    monkeypatch.delenv("JWT_SECRET")
+    assert load_settings("sqlite+aiosqlite://").jwt_secret  # dev default still boots

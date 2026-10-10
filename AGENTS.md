@@ -25,6 +25,8 @@ Verify: `curl -sf http://localhost:3000/` (frontend) and `curl -sf http://localh
 - Backend: `cd server && python -m pytest` (uses SQLite via aiosqlite, no Postgres needed)
 
 ## Quirks
+- Login brute-force limiter lives in the `login_failures` table (survives restarts, shared across API processes): 5 failures per email+client IP and 50 per email across all IPs, per 15 min. Client IP is `request.client.host`; behind a load balancer every user may share one IP, so configure the server's forwarded-IP handling before relying on per-IP limits.
+- `APP_ENV=production` makes the API refuse to boot unless `JWT_SECRET` is set, isn't the dev default, and is at least 32 characters. Unset `APP_ENV` keeps the dev default secret.
 - The backend `load_dotenv()` is a no-op in compose (no committed `.env`); config falls back to compose `environment:`.
 - Vite config sets `server.host: true` and `allowedHosts: true` so the preview's external hostname is accepted.
 - The README's simulation-only status is stale: `usePoseTracking` runs MediaPipe in the browser, with client-side exercise/rep analysis. `usePoseTelemetry` only publishes when `VITE_POSE_WS_URL` is configured; the Base44 compose does not configure it.

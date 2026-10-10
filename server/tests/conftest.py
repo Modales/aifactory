@@ -76,12 +76,6 @@ def _no_real_openrouter_key(monkeypatch):
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
 
 
-@pytest.fixture(autouse=True)
-def _reset_login_limiter():
-    from app.routes import auth
-    auth._failed_logins.clear()
-
-
 @pytest.fixture
 def coach():
     return StubCoach()
