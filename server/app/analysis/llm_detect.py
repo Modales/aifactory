@@ -13,6 +13,7 @@ asks the model only while the answer is still open.
 from __future__ import annotations
 import json
 import re
+import threading
 import time
 from statistics import median
 from .features import ANGLE_KEYS, extrema_envelope, stat
@@ -130,6 +131,9 @@ class LlmDetector:
     def __init__(self, api_key, base_url, model, timeout=8.0):
         self.api_key, self.base_url, self.model, self.timeout = api_key, base_url, model, timeout
         self._sessions: dict[str, tuple[float, dict]] = {}
+        # Sessions with a request already on the wire; overlapping live evaluations must not pay twice.
+        self._in_flight: set[str] = set()
+        self._lock = threading.Lock()
 
     @property
     def available(self):
@@ -171,13 +175,22 @@ class LlmDetector:
         if not self.available:
             return None
         if session_key:
-            cached = self._cached(session_key)
-            if cached:
-                return cached
+            with self._lock:
+                cached = self._cached(session_key)
+                if cached:
+                    return cached
+                if session_key in self._in_flight:
+                    stale = self._sessions.get(session_key)
+                    return stale[1] if stale else None
+                self._in_flight.add(session_key)
         try:
             result = self.complete(describe(cameras, detection, segments_fn), library)
         except Exception as error:  # noqa: BLE001 — the rule result is always a valid fallback
             result = {'exerciseId': None, 'newExercise': None, 'confidence': 0, 'reason': f'unavailable: {type(error).__name__}'}
+        finally:
+            if session_key:
+                with self._lock:
+                    self._in_flight.discard(session_key)
         if result['exerciseId'] and result['exerciseId'] not in library:
             result = {**result, 'exerciseId': None}
         if session_key:

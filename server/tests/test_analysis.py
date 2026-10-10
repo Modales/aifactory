@@ -592,3 +592,23 @@ def test_jitter_on_soft_knees_does_not_turn_an_rdl_into_a_deadlift():
     rows=_jittered(_set('romanian_deadlift',[20]*5),4,1)
     assert stat(rows,'knee','range')<12          # still knees read as still despite ±4° jitter
     assert classify([{'id':'c','view':'side','rows':rows}])['exercise']=='romanian_deadlift'
+
+
+def test_llm_detector_dedupes_concurrent_calls_per_session(monkeypatch):
+    import threading as _t
+    from app.analysis.llm_detect import LlmDetector
+    gate, calls = _t.Event(), []
+    det = LlmDetector('k', 'http://x', 'm')
+    def slow(summary, library):
+        calls.append(1); gate.wait(2)
+        return {'exerciseId': None, 'newExercise': None, 'confidence': 0.9, 'reason': 'ok'}
+    monkeypatch.setattr(det, 'complete', slow)
+    monkeypatch.setattr('app.analysis.llm_detect.describe', lambda *a: 'summary')
+    first = _t.Thread(target=det, args=([], {}, {}, None, 'sess'))
+    first.start()
+    while not calls:
+        pass
+    assert det([], {}, {}, None, 'sess') is None  # overlapping request: no second paid call
+    gate.set(); first.join()
+    assert len(calls) == 1
+    assert det([], {}, {}, None, 'sess')['confidence'] == 0.9  # later calls use the cached answer
