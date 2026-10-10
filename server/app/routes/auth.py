@@ -1,3 +1,5 @@
+import time
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +16,21 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 # Checked when the email is unknown so a miss costs the same time as a wrong password (no account probing).
 _DUMMY_HASH = hash_password("unused-dummy-password")
+
+# Brute-force guard: per-email failed attempts in a sliding window (in-memory, per API process).
+MAX_FAILED_LOGINS = 5
+LOGIN_WINDOW_SECONDS = 15 * 60
+_failed_logins: dict[str, list[float]] = {}
+
+
+def _recent_failures(email: str) -> list[float]:
+    cutoff = time.time() - LOGIN_WINDOW_SECONDS
+    attempts = [t for t in _failed_logins.get(email, []) if t > cutoff]
+    if attempts:
+        _failed_logins[email] = attempts
+    else:
+        _failed_logins.pop(email, None)
+    return attempts
 
 
 def _to_public(user: UserRecord) -> PublicUser:
@@ -66,11 +83,19 @@ async def login(
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    user = await db.scalar(select(UserRecord).where(UserRecord.email == payload.email.lower()))
+    email = payload.email.lower()
+    attempts = _recent_failures(email)
+    if len(attempts) >= MAX_FAILED_LOGINS:
+        retry = int(attempts[0] + LOGIN_WINDOW_SECONDS - time.time()) + 1
+        raise HTTPException(status_code=429, detail="Too many failed login attempts. Try again later.",
+                            headers={"Retry-After": str(retry)})
+    user = await db.scalar(select(UserRecord).where(UserRecord.email == email))
     # PBKDF2 is deliberately slow; run it off the event loop so logins don't stall live analysis.
     valid = await run_in_threadpool(verify_password, payload.password, user.password_hash if user else _DUMMY_HASH)
     if user is None or not valid:
+        _failed_logins.setdefault(email, []).append(time.time())
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    _failed_logins.pop(email, None)
     return _issue_token(user, settings)
 
 

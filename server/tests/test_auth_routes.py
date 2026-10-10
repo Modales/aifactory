@@ -120,3 +120,15 @@ async def test_profile_rejects_out_of_range_answers(auth_client):
 async def test_profile_requires_authentication(client):
     assert (await client.get("/api/users/me/profile")).status_code == 401
     assert (await client.put("/api/users/me/profile", json={})).status_code == 401
+
+
+async def test_login_locks_out_after_repeated_failures(client):
+    await client.post("/api/auth/signup", json=SIGNUP_PAYLOAD)
+    wrong = {"email": SIGNUP_PAYLOAD["email"], "password": "wrong-password-123"}
+    for _ in range(5):
+        assert (await client.post("/api/auth/login", json=wrong)).status_code == 401
+    locked = await client.post("/api/auth/login", json=wrong)
+    assert locked.status_code == 429 and int(locked.headers["Retry-After"]) > 0
+    # Even the right password is refused while locked out.
+    right = {"email": SIGNUP_PAYLOAD["email"], "password": SIGNUP_PAYLOAD["password"]}
+    assert (await client.post("/api/auth/login", json=right)).status_code == 429
