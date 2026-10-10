@@ -11,9 +11,10 @@ NOT uncalibrated 3D triangulation.
 from statistics import median
 from .features import angle, extrema_envelope, features, stat, values, percentile  # noqa: F401 (angle re-exported for tests)
 from .library import DEFAULT_SCALE, FAMILIES, LIBRARY, SCALE
+from .insights import muscle_demand, set_insights
 from .schemas import AnalysisRequest
 
-VERSION = 'pose-rules-2.0'
+VERSION = 'pose-rules-2.1'
 DETECT_THRESHOLD = .68
 MIN_DETECT_MS = 1000
 MIN_DETECT_ROWS = 8
@@ -365,7 +366,8 @@ def resolve(cameras, detection, library, detector, session_key):
     return PROPOSED, opinion['confidence'], {**library, PROPOSED: spec}, proposal, opinion['reason']
 
 
-def analyze(payload: AnalysisRequest, library=None, detector=None, coach=None):
+def analyze(payload: AnalysisRequest, library=None, detector=None, coach=None, athlete=None):
+    """``athlete`` is an optional callable(exercise_id, library) -> plain-text profile + history brief for the coach."""
     library = library or LIBRARY
     cameras = [features(s) for s in payload.streams]
     warnings = []
@@ -397,7 +399,7 @@ def analyze(payload: AnalysisRequest, library=None, detector=None, coach=None):
     if payload.confirmedExercise and candidate and root(candidate, library) != root(exercise, library) and confidence >= DETECT_THRESHOLD:
         warnings.append(f"Observed movement looks more like {library[candidate]['name'].lower()} than the confirmed exercise. Verify your selection before saving.")
 
-    reps = []
+    reps, counted_rows = [], []
     spec = library.get(exercise)
     if spec:
         usable = [c for c in cameras if c['view'] in spec['views']]
@@ -413,13 +415,14 @@ def analyze(payload: AnalysisRequest, library=None, detector=None, coach=None):
             primary = max(usable, key=lambda c: coverage(c['rows'], spec['primary']))
             seen = coverage(primary['rows'], spec['primary'])
             found, signal = count_reps(spec, primary)
-            graded_cameras = cameras
+            graded_cameras, counted_rows = cameras, primary['rows']
             if found and signal == OTHER_SIDE.get(spec['primary']):
                 # The dominant side was unusable but the opposite side drove counting; grade that
                 # side through the same checks by presenting its joint as the primary one. The
                 # returned camera views still report the rows as actually observed.
                 swapped = side_swapped(primary, spec['primary'], signal)
                 graded_cameras = [swapped if c is primary else c for c in cameras]
+                counted_rows = swapped['rows']
             reps = [dict(index=i + 1, **evaluate_rep(spec, start, end, graded_cameras)) for i, (start, end) in enumerate(found)]
             if seen < MIN_COVERAGE:
                 warnings.append(f"Your {spec['primary']} was visible in only {round(seen * 100)}% of frames. Move the camera so your {JOINT_HINTS.get(spec['primary'], spec['primary'])} stay in frame for the whole rep.")
@@ -443,6 +446,8 @@ def analyze(payload: AnalysisRequest, library=None, detector=None, coach=None):
     scores = [r['score'] for r in reps if r['score'] is not None]
     score = round(sum(scores) / len(scores)) if scores else None
     focus = focus_areas(reps)
+    insights = set_insights(spec, reps, counted_rows) if spec else None
+    demand, muscle_notes = muscle_demand(spec, reps) if spec else ({}, [])
     missing = ['Load, pain, breathing and spinal curvature are not assessed.']
     if spec and any(c['view'] == 'frontal' for c in spec['checks']) and not any(c['view'] == 'frontal' for r in reps for c in r['checks']):
         missing.append('Knee tracking needs an aligned frontal view with hips, knees and feet visible.')
@@ -461,10 +466,18 @@ def analyze(payload: AnalysisRequest, library=None, detector=None, coach=None):
         from .llm_detect import describe
         summary = describe(cameras, detection, segments) + '\nJoint visibility: ' + ', '.join(
             f"{k} {round(coverage(c['rows'], k) * 100)}%" for c in cameras for k in ('elbow', 'shoulder', 'hip', 'knee', 'trunk'))
+        if insights and insights['velocityLossPct'] is not None:
+            summary += f"\nSet fatigue: rep speed loss {insights['velocityLossPct']}% (effort {insights['effort']})" + (f", range-of-motion loss {insights['rangeLossPct']}%" if insights['rangeLossPct'] is not None else '')
+        if muscle_notes:
+            summary += '\nMuscle emphasis: ' + ' '.join(muscle_notes)
+        if athlete is not None:
+            brief = athlete(spec['id'], library)
+            if brief:
+                summary += '\n\nATHLETE\n' + brief
         coach_notes = coach(spec['name'], summary, reps, payload.sessionKey, duration)
     return {'modelVersion': VERSION, 'exercise': exercise, 'exerciseName': name,
             'family': spec['family'] if spec else None, 'familyName': FAMILIES.get(spec['family'], spec['family']) if spec else None,
-            'primaryJoint': spec['primary'] if spec else None, 'muscleDemand': spec['muscles'] if spec else {},
+            'primaryJoint': spec['primary'] if spec else None, 'muscleDemand': demand, 'muscleNotes': muscle_notes, 'setInsights': insights,
             'candidate': candidate, 'confidence': confidence, 'candidates': detection['candidates'],
             'alternatives': alternatives if len(alternatives) > 1 else [],
             'selectionSource': source, 'detectionNote': note, 'proposal': proposal,

@@ -18,7 +18,9 @@ export interface ExerciseProposal { name: string; family: string; muscles: strin
 export const PROPOSED: ExerciseId = 'proposed'
 /** LLM coaching notes derived from the measurements (never a score). */
 export interface CoachNotes { cues: string[]; camera: string }
-export interface AnalysisReport { analysisId?: string; modelVersion: string; exercise: ExerciseId | null; exerciseName: string; family: string | null; familyName: string | null; primaryJoint: string | null; muscleDemand: Record<string, number>; candidate: ExerciseId | null; confidence: number; candidates: (NamedExercise & { score: number })[]; alternatives: NamedExercise[]; selectionSource: 'detected' | 'llm' | 'confirmed'; detectionNote: string | null; proposal: ExerciseProposal | null; status: string; repCount: number; score: number | null; durationSeconds: number; reps: AnalysisRep[]; focus: FocusArea[]; headline: string; coach: CoachNotes | null; views: {id: string; view: string; viewSource: string; coverage?: Record<string, number>}[]; warnings: string[]; notAssessed: string[]; disclaimer: string }
+/** Fatigue across the set: rep-duration slowdown (a proxy for bar-speed loss) and range-of-motion loss. */
+export interface SetInsights { velocityLossPct: number | null; rangeLossPct: number | null; effort: 'easy' | 'moderate' | 'hard' | 'near failure' | null; notes: string[] }
+export interface AnalysisReport { analysisId?: string; modelVersion: string; exercise: ExerciseId | null; exerciseName: string; family: string | null; familyName: string | null; primaryJoint: string | null; muscleDemand: Record<string, number>; muscleNotes?: string[]; setInsights?: SetInsights | null; candidate: ExerciseId | null; confidence: number; candidates: (NamedExercise & { score: number })[]; alternatives: NamedExercise[]; selectionSource: 'detected' | 'llm' | 'confirmed'; detectionNote: string | null; proposal: ExerciseProposal | null; status: string; repCount: number; score: number | null; durationSeconds: number; reps: AnalysisRep[]; focus: FocusArea[]; headline: string; coach: CoachNotes | null; views: {id: string; view: string; viewSource: string; coverage?: Record<string, number>}[]; warnings: string[]; notAssessed: string[]; disclaimer: string }
 export const fetchLibrary = () => request<ExerciseLibrary>('/api/analysis/exercises')
 export interface TaughtExercise { exercise: LibraryExercise; learned: { primaryJoint: string; cycle: string; reps: number; bottom: number; top: number; seconds: number; view: string }; checks: string[] }
 export const teachExercise = (name: string, muscles: string[], streams: CameraStream[], synchronized: boolean, family?: string) => request<TaughtExercise>('/api/analysis/exercises', { method: 'POST', body: { name, muscles, family, streams, synchronized } })
@@ -27,3 +29,7 @@ export const evaluate = (streams: CameraStream[], confirmedExercise: ExerciseId 
 
 /** Human unit suffix for a measured check value ("96°", "1.2 s", "0.4 stance widths"). */
 export const formatMeasure = (value: number, units: string) => units === 'degrees' ? `${value}°` : units === '%' ? `${value}%` : `${value} ${units}`
+
+/** Live HUD update: send only frames not yet sent (`fromIndex` per camera). The server answers 409 when it needs everything again. */
+export interface LiveStream extends Omit<CameraStream, 'frames'> { fromIndex: number; frames: AnalysisFrame[] }
+export const evaluateLive = (streams: LiveStream[], confirmedExercise: ExerciseId | null, synchronized: boolean, sessionKey: string) => request<AnalysisReport>('/api/analysis/live', { method: 'POST', body: { streams, confirmedExercise, synchronized, sessionKey } })

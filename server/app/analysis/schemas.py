@@ -60,3 +60,36 @@ class TeachExerciseRequest(BaseModel):
     family: str | None = Field(default=None, max_length=40)
     streams: list[CameraStream] = Field(min_length=1, max_length=3)
     synchronized: bool = False
+
+
+class LiveStream(BaseModel):
+    """Only the frames not yet sent for this camera; ``fromIndex`` = how many were sent before."""
+    model_config = ConfigDict(allow_inf_nan=False)
+    cameraId: str = Field(min_length=1, max_length=80)
+    view: View = 'auto'
+    aspectRatio: float = Field(gt=0.1, le=10)
+    offsetMs: float = Field(default=0, ge=-3_600_000, le=3_600_000)
+    fromIndex: int = Field(ge=0, le=100_000)
+    frames: list[Frame] = Field(default_factory=list, max_length=1800)
+
+    @model_validator(mode='after')
+    def increasing_time(self):
+        if any(b.timestampMs <= a.timestampMs for a, b in zip(self.frames, self.frames[1:])):
+            raise ValueError('Frame timestamps must strictly increase per camera')
+        return self
+
+
+class LiveRequest(BaseModel):
+    """Incremental live-loop evaluation; the server buffers frames per ``sessionKey``. Never persisted."""
+    streams: list[LiveStream] = Field(min_length=1, max_length=3)
+    confirmedExercise: str | None = Field(default=None, min_length=1, max_length=80)
+    synchronized: bool = False
+    sessionKey: str = Field(min_length=1, max_length=80)
+
+    @model_validator(mode='after')
+    def unique_cameras(self):
+        if len({s.cameraId for s in self.streams}) != len(self.streams):
+            raise ValueError('Camera identifiers must be unique')
+        if len(self.streams) > 1 and not self.synchronized:
+            raise ValueError('Confirm that cameras show the same athlete and offsets align the same movement')
+        return self

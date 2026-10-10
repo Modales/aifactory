@@ -9,8 +9,8 @@ import SetupPanel from './SetupPanel'
 import LiveHud from './LiveHud'
 import SavePanel from './SavePanel'
 import TeachExercisePanel from './TeachExercisePanel'
-import { evaluate, fetchLibrary, teachExercise, PROPOSED, type AnalysisFrame, type AnalysisReport, type CameraStream, type ExerciseId, type ExerciseLibrary } from '@/lib/analysisApi'
-import { api } from '@/lib/api'
+import { evaluate, evaluateLive, fetchLibrary, teachExercise, PROPOSED, type AnalysisFrame, type AnalysisReport, type CameraStream, type ExerciseId, type ExerciseLibrary } from '@/lib/analysisApi'
+import { api, ApiError } from '@/lib/api'
 import { emptyMuscleLoad } from '@/lib/muscleModel'
 import { useAuth } from '@/lib/authContext'
 
@@ -44,6 +44,8 @@ export default function AnalysisStudio() {
 
   const workoutId = useRef(crypto.randomUUID())
   const streams = useRef<Record<string, CameraStream>>({})
+  /** Frames per camera the server's live buffer already holds for this workoutId. */
+  const sent = useRef<Record<string, number>>({})
   const ended = useRef(new Set<string>())
   const generation = useRef(0)
   const activeRef = useRef(false)
@@ -111,7 +113,7 @@ export default function AnalysisStudio() {
   function start() {
     const problem = validate()
     if (problem) { setError(problem); return }
-    streams.current = {}; ended.current = new Set()
+    streams.current = {}; sent.current = {}; ended.current = new Set()
     setReport(null); setError(''); setElapsed(0); setSaved(false)
     generation.current++; activeRef.current = true
     setEpoch(performance.now()); setStage('recording')
@@ -162,9 +164,15 @@ export default function AnalysisStudio() {
       const input = Object.values(streams.current)
       if (pending || input.length !== configs.length || input.some(s => s.frames.length < 12)) return
       pending = true; setWorking(true)
-      void evaluate(input, exercise || null, configs.length > 1 && synchronized, false, workoutId.current)
-        .then(r => { if (generation.current === current) { setReport(r); setError('') } })
-        .catch(e => { if (generation.current === current) setError(e.message) })
+      // Only frames the server hasn't buffered yet; a 409 means it lost them, so start over from 0.
+      const counts = input.map(s => s.frames.length)
+      const delta = input.map((s, i) => ({ cameraId: s.cameraId, view: s.view, aspectRatio: s.aspectRatio, offsetMs: s.offsetMs, fromIndex: sent.current[s.cameraId] ?? 0, frames: s.frames.slice(sent.current[s.cameraId] ?? 0, counts[i]) }))
+      void evaluateLive(delta, exercise || null, configs.length > 1 && synchronized, workoutId.current)
+        .then(r => { input.forEach((s, i) => { sent.current[s.cameraId] = counts[i] }); if (generation.current === current) { setReport(r); setError('') } })
+        .catch(e => {
+          if (e instanceof ApiError && e.status === 409) { sent.current = {}; return }
+          if (generation.current === current) setError(e.message)
+        })
         .finally(() => { pending = false; if (generation.current === current) setWorking(false) })
     }, LIVE_INTERVAL_MS)
     return () => window.clearInterval(timer)
@@ -182,7 +190,7 @@ export default function AnalysisStudio() {
   }
 
   function reset() {
-    generation.current++; activeRef.current = false; streams.current = {}
+    generation.current++; activeRef.current = false; streams.current = {}; sent.current = {}
     workoutId.current = crypto.randomUUID()
     setStage('setup'); setReport(null); setError(''); setSaved(false); setWorking(false); setElapsed(0); setTeaching(false)
   }

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState } from 'react'
-import { Check, MessageSquareText, Rotate3D, ShieldCheck, TriangleAlert } from 'lucide-react'
+import { Activity, Check, Dumbbell, MessageSquareText, Rotate3D, ShieldCheck, TriangleAlert } from 'lucide-react'
 const MuscleAnalysis3D = lazy(() => import('@/components/anatomy/MuscleAnalysis3D'))
 import { formatMeasure, type AnalysisReport } from '@/lib/analysisApi'
 import { muscleLoadFromDemand } from '@/lib/muscleModel'
@@ -54,6 +54,27 @@ export default function AnalysisResults({ report, working }: { report: AnalysisR
         <div className="focus-list">
           {report.coach.cues.map(cue => <div key={cue} className="focus-item"><MessageSquareText size={16} /><div><p>{cue}</p></div></div>)}
           {report.coach.camera && <div className="focus-item"><MessageSquareText size={16} /><div><strong>Camera</strong><p>{report.coach.camera}</p></div></div>}
+        </div>
+      </>}
+
+      {report.setInsights?.effort && <>
+        <p className="record-section-title">Set effort</p>
+        <div className="focus-list">
+          <div className="focus-item">
+            <Activity size={16} />
+            <div>
+              <strong>{report.setInsights.effort[0].toUpperCase() + report.setInsights.effort.slice(1)}</strong>
+              <div className="measure">Rep speed loss <b>{report.setInsights.velocityLossPct}%</b>{report.setInsights.rangeLossPct !== null && <> · range loss <b>{report.setInsights.rangeLossPct}%</b></>}</div>
+              {report.setInsights.notes.map(note => <p key={note}>{note}</p>)}
+            </div>
+          </div>
+        </div>
+      </>}
+
+      {(report.muscleNotes?.length ?? 0) > 0 && <>
+        <p className="record-section-title">Muscles worked</p>
+        <div className="focus-list">
+          {report.muscleNotes!.map(note => <div key={note} className="focus-item"><Dumbbell size={16} /><div><p>{note}</p></div></div>)}
         </div>
       </>}
 

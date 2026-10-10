@@ -336,7 +336,7 @@ async def test_analysis_requires_auth_and_reports_are_owned(app_and_client):
     assert history.json()['items'][0]['totalReps']==2
     assert history.json()['items'][0]['avgFormScore']==100
     log=await client.get(f"/api/workouts/history/{saved.json()['id']}/telemetry",headers=first)
-    assert log.json()['analysis']['modelVersion']=='pose-rules-2.0'
+    assert log.json()['analysis']['modelVersion']=='pose-rules-2.1'
     assert 'streams' not in log.json()['analysis']
     assert all('landmarks' not in view for view in log.json()['analysis']['views'])
 
