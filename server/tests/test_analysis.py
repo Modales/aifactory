@@ -244,6 +244,7 @@ def uncertain_library():
     for spec in lib.values():
         if spec['family'] == 'squat':
             spec['signature'] = [['hipAnkle', 'median', -.8, .2]]   # demands "lying" — a standing squat now looks foreign
+            spec['altSignatures'] = {}
     return lib
 
 
@@ -631,3 +632,18 @@ def test_llm_coach_dedupes_concurrent_calls_per_session(monkeypatch):
     gate.set(); first.join()
     assert len(calls) == 1
     assert coach('Squat', 's', [1], session_key='sess')['cues'] == ['Sit lower']
+
+
+# ─── Camera-angle robustness: oblique and head-on push-ups ───────────────────────────────────
+def test_pushup_on_an_oblique_camera_is_detected_and_counted():
+    rows=_jittered(_set('pushup',[20]*4),4,2)
+    camera={'id':'c','view':'oblique','viewSource':'estimated','rows':rows}
+    detection=classify([camera])
+    assert detection['exercise']=='pushup' and detection['confidence']>=.68, detection['candidates'][:3]
+
+
+def test_head_on_pushup_matches_the_frontal_signature():
+    # Phone on the floor in front: torso foreshortened, hands far below the shoulders in torso units.
+    rows=_rep_rows(80,4,elbow=(170,70),wristY=(-2.6,-1.6),wristHip=-1.5,hipAnkle=.8,knee=170,handsApart=2.5,trunk=35)
+    detection=classify([{'id':'c','view':'frontal','rows':rows}])
+    assert detection['exercise']=='pushup' and detection['confidence']>=.68, detection['candidates'][:3]

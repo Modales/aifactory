@@ -39,7 +39,7 @@ def _stat2(rows, key, name):
     return value
 
 
-def match(spec, camera):
+def _match_signature(spec, signature, rows):
     """How well one camera's observed motion fits a spec's signature (0–1). None = cannot judge.
 
     Only visible evidence scores: unseen bands are excluded from the mean and the floor instead
@@ -48,9 +48,8 @@ def match(spec, camera):
     than three visible bands is not detection, it is guessing: abstain and let the LLM or the
     athlete decide.
     """
-    rows = camera['rows']
     fits = []
-    for key, name, lo, hi, *rest in spec['signature']:
+    for key, name, lo, hi, *rest in signature:
         value = _stat2(rows, key, name)
         if value is None:
             if key == spec['primary']:
@@ -70,19 +69,43 @@ def match(spec, camera):
     return round(quality * (0.6 + 0.4 * min(1, len(seen) / 6)), 3)
 
 
+# Matching a signature recorded for another camera angle: oblique/unknown cameras sit between
+# side and frontal so they are discounted lightly; a known-wrong view more.
+VIEW_PENALTY = {'same': 1.0, 'between': .93, 'other': .85}
+
+
+def match(spec, camera):
+    """Best fit of the camera against every view-specific signature of the spec (0–1), or None.
+
+    Phones are rarely exactly side-on or head-on, so no camera angle is excluded: each signature
+    is scored and discounted when it was written for a different view than the camera's.
+    """
+    signatures = [(spec['views'][0], spec['signature'])] + list(spec.get('altSignatures', {}).items())
+    best = None
+    for view, signature in signatures:
+        score = _match_signature(spec, signature, camera['rows'])
+        if score is None:
+            continue
+        kind = 'same' if camera['view'] == view or (camera['view'] in spec['views'] and view == spec['views'][0]) else \
+            'between' if camera['view'] in ('oblique', 'unknown') else 'other'
+        score = round(score * VIEW_PENALTY[kind], 3)
+        best = score if best is None else max(best, score)
+    return best
+
+
 def classify(cameras, library=None):
     """Rank every non-variant spec against every usable camera. Fast: works on partial reps."""
     library = library or LIBRARY
     scores = {}
     for camera in cameras:
         rows = camera['rows']
-        if camera['view'] not in ('side', 'frontal') or len(rows) < MIN_DETECT_ROWS or rows[-1]['t'] - rows[0]['t'] < MIN_DETECT_MS:
+        if len(rows) < MIN_DETECT_ROWS or rows[-1]['t'] - rows[0]['t'] < MIN_DETECT_MS:
             continue
         moving = [_stat2(rows, k, 'range') for k in ('knee', 'hip', 'elbow', 'shoulder', 'trunk', 'ankle')]
         if not any(v is not None and v >= 15 for v in moving):
             continue
         for spec in library.values():
-            if spec['variantOf'] or camera['view'] not in spec['views']:
+            if spec['variantOf']:
                 continue
             score = match(spec, camera)
             if score is not None:
@@ -404,13 +427,14 @@ def analyze(payload: AnalysisRequest, library=None, detector=None, coach=None, a
     if spec:
         usable = [c for c in cameras if c['view'] in spec['views']]
         estimated = [c for c in cameras if c['viewSource'] == 'estimated']
-        if not usable and source == 'confirmed' and estimated:
-            # The athlete told us the exercise; an estimated oblique/unknown angle must not silence it.
+        if not usable and estimated:
+            # A confirmed or confidently detected exercise must not be silenced by an *estimated*
+            # angle (an oblique phone, or a head-on push-up); user-set views are never overridden.
             best = max(estimated, key=lambda c: coverage(c['rows'], spec['primary']))
             relabeled = {**best, 'view': spec['views'][0], 'viewSource': 'assumed'}
             cameras = [relabeled if c is best else c for c in cameras]
             usable = [relabeled]
-            warnings.append(f"Camera angle was estimated as {best['view']}; scoring as a {spec['views'][0]} view because you confirmed {spec['name'].lower()}. Angles may be foreshortened — a true {spec['views'][0]} view is more accurate.")
+            warnings.append(f"Camera angle was estimated as {best['view']}; scoring as a {spec['views'][0]} view for {spec['name'].lower()}. Angles may be foreshortened — a true {spec['views'][0]} view is more accurate.")
         if usable:
             primary = max(usable, key=lambda c: coverage(c['rows'], spec['primary']))
             seen = coverage(primary['rows'], spec['primary'])

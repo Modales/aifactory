@@ -64,9 +64,12 @@ FLEX, EXTEND = 'flex', 'extend'
 _LIBRARY: dict[str, dict] = {}
 
 
-def ex(id, name, family, primary, cycle, rest, work, signature, checks, muscles, views=('side',), min_seconds=.6):
+def ex(id, name, family, primary, cycle, rest, work, signature, checks, muscles, views=('side',), min_seconds=.6, alt=None):
+    # ``alt`` maps another camera view to the signature the same movement shows from there
+    # (a push-up filmed head-on looks nothing like one filmed side-on); detection only.
     spec = {'id': id, 'name': name, 'family': family, 'primary': primary, 'cycle': cycle, 'rest': rest, 'work': work,
             'views': list(views), 'signature': [list(s) for s in signature], 'checks': checks, 'muscles': muscles,
+            'altSignatures': {view: [list(s) for s in sig] for view, sig in (alt or {}).items()},
             'variantOf': None, 'custom': False, 'minSeconds': min_seconds}
     _LIBRARY[id] = spec
     return spec
@@ -96,7 +99,10 @@ ex('squat', 'Squat', 'squat', 'knee', FLEX, 150, 125,
     lockout('Stand-up lockout', 155, 25, 'Stood up to {v}° — full extension.', 'Finished at {v}°, {d}° short of standing tall. Drive all the way up before the next rep.'),
     trunk_at_bottom('Torso angle at the bottom', 45, 25, 'Torso stayed {v}° from vertical at the bottom — chest up.', 'Torso folded {v}° forward at the bottom, {d}° past the {t}° guide. Brace and keep your chest up.'),
     tempo(1.5, 1.0, 'Rep took {v}s — fast for a squat. Slow the descent to about 2 seconds.'), KNEE_TRACKING],
-   {'quads': 95, 'glutes': 88, 'hip_adductors': 62, 'rectus_abdominis': 58, 'obliques': 55, 'erector_spinae': 58, 'hamstrings': 48, 'calves': 35})
+   {'quads': 95, 'glutes': 88, 'hip_adductors': 62, 'rectus_abdominis': 58, 'obliques': 55, 'erector_spinae': 58, 'hamstrings': 48, 'calves': 35},
+   # Head-on: knee angles barely change in 2D, but the hips drop toward the feet every rep.
+   alt={'frontal': [('knee', 'range', 12, 140), ('hipAnkle', 'range', .35, 1.8), standing, ('trunk', 'median', 0, 30),
+                    ('kneeHip', 'range', .3, 2), ('wristHip', 'median', -1, 1.5)]})
 variant('back_squat', 'Back squat', 'squat')
 variant('front_squat', 'Front squat', 'squat', {'quads': 96, 'glutes': 80, 'rectus_abdominis': 66, 'obliques': 60, 'erector_spinae': 64, 'hip_adductors': 55, 'hamstrings': 38})
 variant('goblet_squat', 'Goblet squat', 'squat', {'quads': 92, 'glutes': 84, 'rectus_abdominis': 62, 'obliques': 58, 'erector_spinae': 55, 'hip_adductors': 58, 'anterior_delts': 30, 'biceps_short': 28})
@@ -241,23 +247,27 @@ ex('pullover', 'Dumbbell pullover', 'horizontal_press', 'shoulder', FLEX, 100, 6
 
 # ─── Push-ups & dips ──────────────────────────────────────────────────────────────────────────
 ex('pushup', 'Push-up', 'pushup', 'elbow', FLEX, 150, 115,
-   [('elbow', 'range', 40, 120), horizontal, ('wristY', 'median', -1.8, -.25), ('hip', 'median', 145, 180), lying, still_knees],
+   [('elbow', 'range', 40, 120), horizontal, ('wristY', 'median', -1.8, -.25), ('wristY', 'range', .3, 2.5), ('hip', 'median', 145, 180), lying, still_knees],
    [depth('Push-up depth', 95, 30, 'Elbows bent to {v}° — chest to the floor.', 'Elbows only bent to {v}°, {d}° short of {t}°. Lower until the chest nearly touches.'),
     lockout('Lockout', 155, 25, 'Elbows locked out at {v}°.', 'Elbows finished at {v}°, {d}° short of straight. Press all the way up.'),
     check('Hips in line', 'hip', 'p10', 150, 30, 'min', 'Hips stayed at {v}° — a straight line.', 'Hips sagged to {v}°, {d}° out of line. Brace the core and squeeze the glutes.'),
     tempo(1.2, .8, 'Rep took {v}s — quick. Lower under control.')],
-   {'mid_chest': 88, 'lower_chest': 70, 'triceps_lateral': 78, 'triceps_long': 70, 'anterior_delts': 66, 'rectus_abdominis': 60, 'obliques': 50})
+   {'mid_chest': 88, 'lower_chest': 70, 'triceps_lateral': 78, 'triceps_long': 70, 'anterior_delts': 66, 'rectus_abdominis': 60, 'obliques': 50},
+   # Head-on (phone on the floor in front): the torso is foreshortened, so hands sit far below the
+   # shoulders in torso units and the feet never read as "standing" below the hips.
+   alt={'frontal': [('elbow', 'range', 35, 150), ('wristY', 'median', -4.5, -1.0), ('wristHip', 'median', -4, -.4),
+                    ('hipAnkle', 'median', -1, 1.25), ('knee', 'median', 140, 180), ('handsApart', 'median', .5, 6)]})
 variant('diamond_pushup', 'Diamond push-up', 'pushup', {'triceps_lateral': 92, 'triceps_long': 86, 'mid_chest': 78, 'anterior_delts': 60, 'rectus_abdominis': 55})
 variant('wide_pushup', 'Wide push-up', 'pushup', {'mid_chest': 94, 'lower_chest': 72, 'anterior_delts': 70, 'triceps_lateral': 62, 'rectus_abdominis': 55})
 ex('incline_pushup', 'Incline push-up', 'pushup', 'elbow', FLEX, 150, 115,
-   [('elbow', 'range', 40, 120), ('trunk', 'median', 30, 62), ('wristY', 'median', -1.6, -.2), ('hip', 'median', 145, 180)],
+   [('elbow', 'range', 40, 120), ('trunk', 'median', 30, 62), ('wristY', 'median', -1.6, -.2), ('hip', 'median', 145, 180), ('hipAnkle', 'median', .5, 2.2)],
    [depth('Push-up depth', 95, 30, 'Elbows bent to {v}°.', 'Elbows only bent to {v}°, {d}° short of {t}°. Lower the chest to the surface.'),
     lockout('Lockout', 155, 25, 'Elbows locked out at {v}°.', 'Elbows finished at {v}°, {d}° short of straight.'),
     check('Hips in line', 'hip', 'p10', 150, 30, 'min', 'Hips stayed at {v}°.', 'Hips sagged to {v}° — brace the core.'),
     tempo(1.2, .8, 'Rep took {v}s — quick. Lower under control.')],
    {'lower_chest': 80, 'mid_chest': 80, 'triceps_lateral': 72, 'anterior_delts': 60, 'rectus_abdominis': 50})
 ex('knee_pushup', 'Knee push-up', 'pushup', 'elbow', FLEX, 150, 115,
-   [('elbow', 'range', 40, 120), ('trunk', 'median', 45, 90), ('wristY', 'median', -1.8, -.25), ('knee', 'median', 50, 125), lying],
+   [('elbow', 'range', 40, 120), ('trunk', 'median', 45, 90), ('wristY', 'median', -1.8, -.25), ('knee', 'median', 50, 150), lying],
    [depth('Push-up depth', 95, 30, 'Elbows bent to {v}°.', 'Elbows only bent to {v}°, {d}° short of {t}°. Lower the chest toward the floor.'),
     lockout('Lockout', 155, 25, 'Elbows locked out at {v}°.', 'Elbows finished at {v}°, {d}° short of straight.'),
     check('Hips in line', 'hip', 'p10', 145, 30, 'min', 'Hips stayed at {v}°.', 'Hips bent to {v}° — keep a straight line from knees to shoulders.'),
@@ -376,7 +386,7 @@ variant('barbell_curl', 'Barbell curl', 'curl')
 variant('cable_curl', 'Cable curl', 'curl')
 variant('reverse_curl', 'Reverse curl', 'curl', {'forearms': 92, 'brachialis': 84, 'biceps_long': 55, 'biceps_short': 50})
 ex('concentration_curl', 'Concentration curl', 'arm', 'elbow', FLEX, 150, 90,
-   [('elbow', 'range', 50, 140), seated, ('trunk', 'median', 15, 65), ('shoulderDrift', 'range', 0, .3)],
+   [('elbow', 'range', 50, 140), seated, ('trunk', 'median', 15, 65), ('shoulderDrift', 'range', 0, .3), ('hip', 'median', 40, 130)],
    [depth('Curl range', 55, 30, 'Elbow closed to {v}°.', 'Elbow only closed to {v}°, {d}° short of {t}°. Curl all the way to the shoulder.'),
     lockout('Full extension', 150, 25, 'Arm extended to {v}°.', 'Arm only opened to {v}°, {d}° short of straight.'),
     tempo(1.5, 1.0, 'Rep took {v}s — slow the negative.')],
@@ -413,7 +423,7 @@ ex('situp', 'Sit-up', 'core', 'trunk', FLEX, 70, 40,
     tempo(1.2, .8, 'Rep took {v}s — slow down; no momentum.')],
    {'rectus_abdominis': 95, 'obliques': 60, 'transverse_abdominis': 55, 'quads': 30})
 ex('crunch', 'Crunch', 'core', 'trunk', FLEX, 82, 68,
-   [('trunk', 'range', 10, 38), ('hip', 'range', 0, 35), ('knee', 'median', 50, 135), lying],
+   [('trunk', 'range', 10, 38), ('hip', 'range', 0, 35), ('knee', 'median', 50, 135), lying, ('elbow', 'range', 0, 45), ('wristY', 'median', -.6, 1.5)],
    [depth('Crunch height', 62, 20, 'Torso lifted to {v}° — shoulder blades off the floor.', 'Torso only lifted to {v}°, {d}° short of {t}°. Lift the shoulder blades clear of the floor.'),
     check('Hips stay down', 'hip', 'range', 25, 25, 'max', 'Hips moved {v}° — the abs did the work.', 'Hips moved {v}° — this is becoming a sit-up. Keep the lower back on the floor.'),
     tempo(1.2, .8, 'Rep took {v}s — squeeze at the top for a second.')],
@@ -477,7 +487,7 @@ variant('nordic_curl', 'Nordic hamstring curl', 'seated_leg_curl', {'hamstrings'
 
 # ─── Conditioning ──────────────────────────────────────────────────────────────────────────────
 ex('jumping_jack', 'Jumping jack', 'conditioning', 'shoulder', EXTEND, 60, 120,
-   [('shoulder', 'range', 70, 170), ('handsApart', 'range', 1.0, 5), ('stance', 'range', .08, .8), upright],
+   [('shoulder', 'range', 70, 170), ('handsApart', 'range', 1.0, 5), ('stance', 'range', .08, .8), upright, ('wristY', 'p90', .3, 3), standing],
    [depth('Arms overhead', 150, 30, 'Arms reached a {v}° shoulder angle overhead.', 'Arms only reached {v}°, {d}° short of overhead. Clap above the head.', direction='min'),
     tempo(.4, .4, 'Rep took {v}s — pick up the pace.')],
    {'lateral_delts': 60, 'calves': 70, 'quads': 55, 'glutes': 50, 'hip_adductors': 55, 'rectus_abdominis': 35}, views=('frontal',), min_seconds=.3)
