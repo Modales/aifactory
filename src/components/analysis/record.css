@@ -184,3 +184,8 @@
 
 .voice-toggle { display: inline-flex; align-items: center; gap: 8px; margin-top: 12px; padding: 7px 12px; border: 2px solid var(--ink); background: var(--paper); font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: .2em; text-transform: uppercase; }
 .voice-toggle[aria-pressed=true] { background: var(--ink); color: var(--paper); }
+
+.record-countdown { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; background: rgba(0,0,0,.45); color: var(--paper); pointer-events: none; }
+.record-countdown strong { font-family: var(--mono); font-size: 120px; line-height: 1; animation: countdown-pop 1s ease-out; }
+.record-countdown span { font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: .25em; text-transform: uppercase; }
+@keyframes countdown-pop { from { transform: scale(1.4); opacity: 0; } 30% { transform: scale(1); opacity: 1; } }

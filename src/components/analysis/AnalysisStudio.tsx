@@ -92,6 +92,22 @@ export default function AnalysisStudio() {
     return null
   }
 
+  // Live cameras get a 3-second get-in-position countdown; uploaded clips start immediately.
+  const [countdown, setCountdown] = useState<number | null>(null)
+  useEffect(() => {
+    if (countdown === null) return
+    if (countdown === 0) { setCountdown(null); start(); return }
+    const t = setTimeout(() => setCountdown(c => (c === null ? null : c - 1)), 1000)
+    return () => clearTimeout(t)
+  }, [countdown]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function begin() {
+    if (isUpload) { start(); return }
+    const problem = validate()
+    if (problem) { setError(problem); return }
+    setError(''); setCountdown(3)
+  }
+
   function start() {
     const problem = validate()
     if (problem) { setError(problem); return }
@@ -196,6 +212,7 @@ export default function AnalysisStudio() {
               <div className={`capture-grid ${configs.length > 1 ? 'multi' : ''}`}>
                 {configs.map(c => <CaptureView key={c.id} config={c} showHeading={configs.length > 1} recording={stage === 'recording'} epoch={epoch} overlapStart={overlapStart} onFrame={onFrame} onReady={onReady} onEnded={onEnded} />)}
               </div>
+              {countdown !== null && <div className="record-countdown" aria-live="assertive"><strong key={countdown}>{countdown || 'Go'}</strong><span>Get in position</span></div>}
             </div>
           )}
 
@@ -203,7 +220,7 @@ export default function AnalysisStudio() {
 
           {stage === 'setup' && (
             <div className="record-controls">
-              <button className="record-button" disabled={!signedIn || !allReady} onClick={start} aria-label={isUpload ? 'Analyze clip' : 'Start recording'}><Circle size={22} fill="currentColor" />{isUpload ? 'Analyze' : 'Record'}</button>
+              <button className="record-button" disabled={!signedIn || !allReady} onClick={countdown === null ? begin : () => setCountdown(null)} aria-label={countdown !== null ? 'Cancel countdown' : isUpload ? 'Analyze clip' : 'Start recording'}><Circle size={22} fill="currentColor" />{countdown !== null ? 'Cancel' : isUpload ? 'Analyze' : 'Record'}</button>
             </div>
           )}
           {stage === 'setup' && <p className="record-hint">{!signedIn ? 'Sign in to start.' : allReady ? (isUpload ? 'Clip loaded — press Analyze to play it through the pose model.' : 'Camera ready. Face the camera side-on and press Record.') : setupProblem ? `${setupProblem} Try Chrome or Safari with camera access allowed, or upload a clip under “More ways to record”.` : 'Starting camera and pose model…'}</p>}
