@@ -14,6 +14,7 @@ live loop asks once per new rep (or once per ten seconds while nothing counts ye
 from __future__ import annotations
 import json
 import re
+import threading
 import time
 
 SESSION_TTL = 15 * 60
@@ -51,6 +52,10 @@ class LlmCoach:
     def __init__(self, api_key, base_url, model, timeout=8.0):
         self.api_key, self.base_url, self.model, self.timeout = api_key, base_url, model, timeout
         self._cache: dict[str, tuple[float, dict]] = {}
+        # Latest notes per session, served while a newer request for that session is still running.
+        self._latest: dict[str, dict] = {}
+        self._in_flight: set[str] = set()
+        self._lock = threading.Lock()
 
     @property
     def available(self):
@@ -79,14 +84,26 @@ class LlmCoach:
         if not self.available:
             return None
         now = time.time()
-        self._cache = {k: v for k, v in self._cache.items() if now - v[0] < SESSION_TTL}
         key = f"{session_key}|{exercise_name}|{len(reps)}|{int(seconds // 10) if not reps else ''}" if session_key else None
-        if key and key in self._cache:
-            return self._cache[key][1]
+        if key:
+            with self._lock:
+                self._cache = {k: v for k, v in self._cache.items() if now - v[0] < SESSION_TTL}
+                self._latest = {k: v for k, v in self._latest.items() if any(c.startswith(f'{k}|') for c in self._cache)}
+                if key in self._cache:
+                    return self._cache[key][1]
+                if session_key in self._in_flight:
+                    return self._latest.get(session_key)
+                self._in_flight.add(session_key)
         try:
             result = self.complete(exercise_name, summary, reps)
         except Exception:  # noqa: BLE001 — coaching notes are optional; the rule result stands
             result = None
+        finally:
+            if key:
+                with self._lock:
+                    self._in_flight.discard(session_key)
         if key and result is not None:
-            self._cache[key] = (now, result)
+            with self._lock:
+                self._cache[key] = (now, result)
+                self._latest[session_key] = result
         return result

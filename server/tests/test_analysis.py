@@ -612,3 +612,22 @@ def test_llm_detector_dedupes_concurrent_calls_per_session(monkeypatch):
     gate.set(); first.join()
     assert len(calls) == 1
     assert det([], {}, {}, None, 'sess')['confidence'] == 0.9  # later calls use the cached answer
+
+
+def test_llm_coach_dedupes_concurrent_calls_per_session(monkeypatch):
+    import threading as _t
+    from app.analysis.llm_coach import LlmCoach
+    gate, calls = _t.Event(), []
+    coach = LlmCoach('k', 'http://x', 'm')
+    def slow(name, summary, reps):
+        calls.append(1); gate.wait(2)
+        return {'cues': ['Sit lower'], 'camera': None}
+    monkeypatch.setattr(coach, 'complete', slow)
+    first = _t.Thread(target=coach, args=('Squat', 's', [1]), kwargs={'session_key': 'sess'})
+    first.start()
+    while not calls:
+        pass
+    assert coach('Squat', 's', [1, 2], session_key='sess') is None  # overlapping: no second paid call
+    gate.set(); first.join()
+    assert len(calls) == 1
+    assert coach('Squat', 's', [1], session_key='sess')['cues'] == ['Sit lower']
