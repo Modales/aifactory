@@ -181,3 +181,6 @@
   .view-config-fields { grid-template-columns: 1fr; }
   .record-stage { box-shadow: 4px 4px 0 var(--ink); }
 }
+
+.voice-toggle { display: inline-flex; align-items: center; gap: 8px; margin-top: 12px; padding: 7px 12px; border: 2px solid var(--ink); background: var(--paper); font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: .2em; text-transform: uppercase; }
+.voice-toggle[aria-pressed=true] { background: var(--ink); color: var(--paper); }

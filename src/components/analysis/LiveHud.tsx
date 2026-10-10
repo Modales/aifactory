@@ -1,4 +1,5 @@
-import { Activity, TriangleAlert } from 'lucide-react'
+import { Activity, TriangleAlert, Volume2, VolumeX } from 'lucide-react'
+import { useVoiceCoach } from '@/hooks/useVoiceCoach'
 import type { AnalysisReport, ExerciseId } from '@/lib/analysisApi'
 
 const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
@@ -11,6 +12,7 @@ export default function LiveHud({ elapsed, report, working, exercise, onExercise
   const issue = lastRep?.checks.filter(c => !c.passed).sort((a, b) => a.score - b.score)[0]
   // When the rule checks have nothing measurable to say, fall back to the coach's plain-language cue.
   const coachCue = report?.coach?.cues[0]
+  const voice = useVoiceCoach(report)
   return (
     <>
       <div className="live-hud">
@@ -18,6 +20,7 @@ export default function LiveHud({ elapsed, report, working, exercise, onExercise
         <div><span>Reps</span><strong>{report?.repCount ?? 0}</strong></div>
         <div><span>Form</span><strong>{report?.score ?? '—'}{report?.score != null && <small>/100</small>}</strong></div>
       </div>
+      {voice.supported && <button className="voice-toggle" aria-pressed={voice.enabled} onClick={voice.toggle}>{voice.enabled ? <Volume2 size={14} /> : <VolumeX size={14} />} Voice coach {voice.enabled ? 'on' : 'off'}</button>}
       <div className={`live-cue ${issue ? 'warn' : ''}`}>
         {issue ? <TriangleAlert size={20} /> : <Activity size={20} />}
         <div>
