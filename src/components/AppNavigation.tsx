@@ -1,7 +1,8 @@
 import { Activity, BookOpen, HeartPulse, History, LayoutDashboard, Users } from 'lucide-react'
 import { Link, useLocation } from 'react-router'
+import { appPathAllowed, getSurface } from '@/lib/platform'
 
-const items = [
+const ALL_ITEMS = [
   { label: 'Dashboard', to: '/dashboard', icon: LayoutDashboard, match: 'dashboard' },
   { label: 'Social', to: '/dashboard#social', icon: Users, match: 'social' },
   { label: 'History', to: '/history', icon: History, match: 'history' },
@@ -12,6 +13,8 @@ const items = [
 
 export default function AppNavigation() {
   const location = useLocation()
+  const surface = getSurface()
+  const items = ALL_ITEMS.filter(({ to }) => appPathAllowed(surface, to.split('#')[0]))
   const active = location.pathname === '/dashboard' && location.hash === '#social'
     ? 'social'
     : location.pathname.slice(1) || 'dashboard'
@@ -23,8 +26,8 @@ export default function AppNavigation() {
   return (
     <nav
       aria-label="Athlete workspace"
-      className="fixed inset-x-0 bottom-0 z-50 grid grid-cols-6 border-t-2 border-foreground bg-background lg:static lg:flex lg:border-0"
-      style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      className="fixed inset-x-0 bottom-0 z-50 grid border-t-2 border-foreground bg-background lg:static lg:flex lg:border-0"
+      style={{ paddingBottom: 'env(safe-area-inset-bottom)', gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}
     >
       {items.map(({ label, to, icon: Icon, match }) => {
         const selected = active === match

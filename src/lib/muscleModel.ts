@@ -36,7 +36,7 @@ const NAMES: Record<MuscleId, string> = {
 type Demand = Partial<Record<MuscleId, number>>
 
 /** Anatomical exercise priors, scaled by observed volume, range, tempo and form quality. */
-const EXERCISE_DEMAND: Record<string, Demand> = {
+export const EXERCISE_DEMAND: Record<string, Demand> = {
   squat: { quads: 95, glutes: 88, hip_adductors: 62, rectus_abdominis: 58, obliques: 55, erector_spinae: 58, hamstrings: 48, calves: 35 },
   deadlift: { erector_spinae: 94, glutes: 84, hamstrings: 82, lats: 65, traps: 62, quads: 58, forearms: 55, rectus_abdominis: 54, obliques: 54 },
   bench: { mid_chest: 95, lower_chest: 80, upper_chest: 68, triceps_lateral: 76, triceps_long: 72, anterior_delts: 66, lats: 28 },
