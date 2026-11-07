@@ -1,9 +1,7 @@
 import type { CSSProperties, ReactNode } from 'react'
 import { Link } from 'react-router'
 import { motion, type MotionStyle } from 'framer-motion'
-import { ArrowRight, Smartphone } from 'lucide-react'
-import { getSurface } from '@/lib/platform'
-import { scrollToId } from './scroll'
+import { ArrowRight } from 'lucide-react'
 
 /**
  * Fills its positioned parent like `object-fit: cover`, but as a real box, so children
@@ -57,22 +55,14 @@ export function ChapterLabel({ index, title, className = '' }: { index: string; 
   )
 }
 
-/** The one call to action, worded for the visitor's device: open the web app on desktop, install elsewhere. */
+/** The one call to action: open the app on any device. */
 export function PrimaryCta({ size = 'lg', className = '' }: { size?: 'sm' | 'lg'; className?: string }) {
-  const { device } = getSurface()
   const base = `group inline-flex items-center gap-2 whitespace-nowrap border-2 border-[#F4F1EA] bg-primary font-bold uppercase tracking-wide text-[#F4F1EA] transition-transform hover:-translate-y-0.5 ${
     size === 'lg' ? 'px-6 py-4 text-sm shadow-[6px_6px_0_#F4F1EA]' : 'px-4 py-2 text-xs'
   } ${className}`
-  if (device === 'desktop') {
-    return (
-      <Link to="/dashboard" className={base}>
-        Open the web app <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
-      </Link>
-    )
-  }
   return (
-    <button type="button" onClick={() => scrollToId('get-app')} className={base}>
-      <Smartphone className="h-4 w-4" /> Get the app
-    </button>
+    <Link to="/dashboard" className={base}>
+      Open the app <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+    </Link>
   )
 }

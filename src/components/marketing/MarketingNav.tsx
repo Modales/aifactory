@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
 import { motion, useMotionValueEvent, useScroll } from 'framer-motion'
-import { getSurface } from '@/lib/platform'
 import { PrimaryCta } from './primitives'
 import { scrollToId } from './scroll'
 
@@ -16,7 +15,6 @@ export default function MarketingNav() {
   const { scrollY, scrollYProgress } = useScroll()
   const [solid, setSolid] = useState(false)
   useMotionValueEvent(scrollY, 'change', (value) => setSolid(value > 40))
-  const desktop = getSurface().device === 'desktop'
 
   return (
     <header className={`fixed inset-x-0 top-0 z-50 transition-colors duration-300 ${solid ? 'border-b border-white/10 bg-[#0E0C0A]/85 backdrop-blur-md' : ''}`}>
@@ -32,11 +30,9 @@ export default function MarketingNav() {
           ))}
         </nav>
         <div className="flex items-center gap-4">
-          {desktop && (
-            <Link to="/login" className="mono-data hidden text-[11px] tracking-[0.22em] text-[#F4F1EA]/75 hover:text-[#F4F1EA] whitespace-nowrap sm:block">
-              LOG IN
-            </Link>
-          )}
+          <Link to="/login" className="mono-data hidden text-[11px] tracking-[0.22em] text-[#F4F1EA]/75 hover:text-[#F4F1EA] whitespace-nowrap sm:block">
+            LOG IN
+          </Link>
           <PrimaryCta size="sm" />
         </div>
       </div>

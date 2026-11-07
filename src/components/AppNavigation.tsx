@@ -1,6 +1,5 @@
 import { Activity, BookOpen, HeartPulse, History, LayoutDashboard, Sparkles, Users } from 'lucide-react'
 import { Link, useLocation } from 'react-router'
-import { appPathAllowed, getSurface } from '@/lib/platform'
 
 const ALL_ITEMS = [
   { label: 'Dashboard', to: '/dashboard', icon: LayoutDashboard, match: 'dashboard' },
@@ -13,13 +12,7 @@ const ALL_ITEMS = [
 
 export default function AppNavigation() {
   const location = useLocation()
-  const surface = getSurface()
-  // The marketing story is reachable only from a desktop browser; the installed app never shows it.
-  const showStory = surface.device === 'desktop' && !surface.standalone
-  const items = [
-    ...(showStory ? [{ label: 'The story', to: '/', icon: Sparkles, match: 'story' }] : []),
-    ...ALL_ITEMS.filter(({ to }) => appPathAllowed(surface, to.split('#')[0])),
-  ]
+  const items = [{ label: 'The story', to: '/', icon: Sparkles, match: 'story' }, ...ALL_ITEMS]
   const active = location.pathname === '/dashboard' && location.hash === '#social'
     ? 'social'
     : location.pathname.slice(1) || 'dashboard'
