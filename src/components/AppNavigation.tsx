@@ -1,4 +1,4 @@
-import { Activity, BookOpen, HeartPulse, History, LayoutDashboard, Users } from 'lucide-react'
+import { Activity, BookOpen, HeartPulse, History, LayoutDashboard, Sparkles, Users } from 'lucide-react'
 import { Link, useLocation } from 'react-router'
 import { appPathAllowed, getSurface } from '@/lib/platform'
 
@@ -14,7 +14,12 @@ const ALL_ITEMS = [
 export default function AppNavigation() {
   const location = useLocation()
   const surface = getSurface()
-  const items = ALL_ITEMS.filter(({ to }) => appPathAllowed(surface, to.split('#')[0]))
+  // The marketing story is reachable only from a desktop browser; the installed app never shows it.
+  const showStory = surface.device === 'desktop' && !surface.standalone
+  const items = [
+    ...(showStory ? [{ label: 'The story', to: '/', icon: Sparkles, match: 'story' }] : []),
+    ...ALL_ITEMS.filter(({ to }) => appPathAllowed(surface, to.split('#')[0])),
+  ]
   const active = location.pathname === '/dashboard' && location.hash === '#social'
     ? 'social'
     : location.pathname.slice(1) || 'dashboard'
@@ -38,7 +43,11 @@ export default function AppNavigation() {
             aria-current={selected ? 'page' : undefined}
             onClick={match === 'social' ? scrollToSocial : undefined}
             className={`flex min-w-0 flex-col items-center gap-1 px-2 py-2 text-[9px] font-bold uppercase tracking-wide lg:shrink-0 lg:flex-row lg:gap-2 lg:px-2 lg:text-xs ${
-              selected ? 'bg-primary text-primary-foreground lg:bg-primary/10 lg:text-foreground' : 'text-muted-foreground hover:text-foreground'
+              selected
+                ? 'bg-primary text-primary-foreground lg:bg-primary/10 lg:text-foreground'
+                : match === 'story'
+                  ? 'text-primary hover:bg-primary hover:text-primary-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
             }`}
           >
             <Icon className="h-4 w-4 shrink-0" />
