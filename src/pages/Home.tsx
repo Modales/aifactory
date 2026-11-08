@@ -1,55 +1,15 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
-import { motion, useMotionValue, useSpring, useTransform } from 'framer-motion'
-import {
-  ArrowRight,
-  ArrowUpRight,
-  Camera,
-  Gauge,
-  Move3d,
-  ScanFace,
-  Flame,
-  Zap,
-} from 'lucide-react'
+import { motion, useMotionValue, useScroll, useSpring, useTransform } from 'framer-motion'
+import { ArrowRight, Camera, Gauge, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import AuthNav from '@/components/AuthNav'
 import PoseCanvas from '@/components/PoseCanvas'
 import EffortDial, { zoneFor } from '@/components/EffortDial'
 import { EXERCISES } from '@/lib/simulation'
-
-const EASE = [0.22, 1, 0.36, 1] as const
-
-const rise = {
-  hidden: { opacity: 0, y: 32 },
-  show: (i: number = 0) => ({
-    opacity: 1,
-    y: 0,
-    transition: { delay: i * 0.09, duration: 0.7, ease: EASE },
-  }),
-}
-
-const FEATURES = [
-  {
-    icon: ScanFace,
-    title: 'Exercise & AI Camera Setup',
-    body: 'Select your movement — Squat, Deadlift, Bench, Press, Curl, or Lunge. The AI instantly recommends the optimal camera angle and distance guidance.',
-  },
-  {
-    icon: Move3d,
-    title: 'Biomechanical 3D Tracking',
-    body: 'Continuous 12-joint skeleton posture estimation aligned to the camera viewpoint angle (Side, Front, Three-Quarter, Rear).',
-  },
-  {
-    icon: Gauge,
-    title: 'Velocity & Form Analytics',
-    body: 'Rep-by-rep concentric and eccentric duration split, joint Range of Motion angles, and real-time angular speed (deg/s) telemetry.',
-  },
-  {
-    icon: Flame,
-    title: 'Effort & Strain Engine',
-    body: 'Rep count, rep-velocity decay and form degradation fused into one 0–100 effort score to pinpoint true set completion.',
-  },
-]
+import Reveal, { EASE } from '@/components/home/Reveal'
+import ScrollProgress from '@/components/home/ScrollProgress'
+import StoryScroll from '@/components/home/StoryScroll'
 
 const STEPS = [
   {
@@ -156,6 +116,14 @@ export default function Home() {
   const demoEffort = Math.max(3, Math.min(99, Math.round(6 + reps * 5.6 + slow * 0.62 + strain * 0.3)))
   const zone = zoneFor(demoEffort)
 
+  // hero recedes as the story takes over
+  const heroRef = useRef<HTMLElement>(null)
+  const { scrollYProgress: heroOut } = useScroll({ target: heroRef, offset: ['start start', 'end start'] })
+  const heroCopyY = useTransform(heroOut, [0, 1], ['0%', '30%'])
+  const heroFrameY = useTransform(heroOut, [0, 1], ['0%', '-12%'])
+  const heroScale = useTransform(heroOut, [0, 1], [1, 0.92])
+  const heroFade = useTransform(heroOut, [0, 0.85], [1, 0])
+
   return (
     <div className="min-h-screen touch-manipulation bg-background pb-20 lg:pb-0">
       <div className="noise" />
@@ -186,48 +154,39 @@ export default function Home() {
             </Link>
           </div>
         </div>
+        <ScrollProgress />
       </header>
 
       {/* ── Hero ───────────────────────────────────────────── */}
-      <section className="relative overflow-hidden border-b-2 border-foreground">
+      <section ref={heroRef} className="relative overflow-hidden border-b-2 border-foreground">
         <div className="mx-auto grid max-w-7xl items-center gap-10 px-4 py-12 lg:grid-cols-2 lg:gap-12 lg:py-24">
-          <div>
-            <motion.div variants={rise} initial="hidden" animate="show" custom={0}>
+          <motion.div style={{ y: heroCopyY, opacity: heroFade }}>
+            <Reveal onMount>
               <span className="mono-data inline-block -rotate-2 border-2 border-foreground bg-primary px-3 py-1 text-[10px] font-semibold tracking-[0.25em] text-primary-foreground">
                 AI LIFTING COACH — HACKATHON BUILD
               </span>
-            </motion.div>
+            </Reveal>
 
-            <motion.h1
-              variants={rise}
-              initial="hidden"
-              animate="show"
-              custom={1}
-              className="mt-6 text-[2.6rem] font-bold uppercase leading-[0.95] tracking-tight sm:text-6xl lg:text-7xl"
-            >
-              Your camera
-              <br />
-              is your new
-              <br />
-              <span className="font-serifit normal-case italic text-primary">coach.</span>
-            </motion.h1>
+            <Reveal onMount i={1}>
+              <h1 className="mt-6 text-[2.6rem] font-bold uppercase leading-[0.95] tracking-tight sm:text-6xl lg:text-7xl">
+                Your camera
+                <br />
+                is your new
+                <br />
+                <span className="font-serifit normal-case italic text-primary">coach.</span>
+              </h1>
+            </Reveal>
 
-            <motion.p
-              variants={rise}
-              initial="hidden"
-              animate="show"
-              custom={2}
-              className="mt-6 max-w-md text-base text-muted-foreground sm:text-lg"
-            >
-              FormFit watches your set, names the exercise and the angle, grades every rep, and
-              reads your effort off your speed, your reps and your face. No wearables. No logging.
-            </motion.p>
+            <Reveal onMount i={2}>
+              <p className="mt-6 max-w-md text-base text-muted-foreground sm:text-lg">
+                FormFit watches your set, names the exercise and the angle, grades every rep, and
+                reads your effort off your speed, your reps and your face. No wearables. No logging.
+              </p>
+            </Reveal>
 
-            <motion.div
-              variants={rise}
-              initial="hidden"
-              animate="show"
-              custom={3}
+            <Reveal
+              onMount
+              i={3}
               className="mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:gap-4"
             >
               <Link to="/session" className="w-full sm:w-auto">
@@ -247,21 +206,18 @@ export default function Home() {
                   TRY DEMO MODE
                 </Button>
               </Link>
-            </motion.div>
+            </Reveal>
 
-            <motion.p
-              variants={rise}
-              initial="hidden"
-              animate="show"
-              custom={4}
-              className="mono-data mt-8 text-[10px] tracking-[0.25em] text-muted-foreground"
-            >
-              06 LIFTS — 04 ANGLES — 00 WEARABLES
-            </motion.p>
-          </div>
+            <Reveal onMount i={4}>
+              <p className="mono-data mt-8 text-[10px] tracking-[0.25em] text-muted-foreground">
+                06 LIFTS — 04 ANGLES — 00 WEARABLES
+              </p>
+            </Reveal>
+          </motion.div>
 
           {/* pose-tracking frame with pointer parallax */}
           <motion.div
+            style={{ y: heroFrameY, scale: heroScale, opacity: heroFade }}
             initial={{ opacity: 0, x: 48, rotate: 2 }}
             animate={{ opacity: 1, x: 0, rotate: 0 }}
             transition={{ duration: 0.9, ease: EASE, delay: 0.2 }}
@@ -303,58 +259,13 @@ export default function Home() {
 
       <Marquee dark />
 
-      {/* ── System / features ──────────────────────────────── */}
-      <section id="system" className="mx-auto max-w-7xl px-4 py-14 lg:py-20">
-        <motion.div
-          variants={rise}
-          initial="hidden"
-          whileInView="show"
-          viewport={{ once: true, margin: '-80px' }}
-        >
-          <p className="mono-data text-[10px] tracking-[0.3em] text-primary">01 — THE SYSTEM</p>
-          <h2 className="mt-3 max-w-2xl text-4xl font-bold uppercase leading-none tracking-tight sm:text-5xl">
-            Everything a coach sees,{' '}
-            <span className="font-serifit normal-case italic text-primary">automated</span>
-          </h2>
-        </motion.div>
-
-        <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-          {FEATURES.map((f, i) => (
-            <motion.div
-              key={f.title}
-              variants={rise}
-              initial="hidden"
-              whileInView="show"
-              viewport={{ once: true, margin: '-60px' }}
-              custom={i}
-            >
-              <Tilt className="h-full">
-                <div className="group flex h-full flex-col border-2 border-foreground bg-card p-6 transition-all duration-200 hover:-translate-y-1 hover:hard-shadow">
-                  <div className="flex items-start justify-between">
-                    <div className="flex h-11 w-11 items-center justify-center border-2 border-foreground bg-foreground text-background transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
-                      <f.icon className="h-5 w-5" />
-                    </div>
-                    <span className="text-outline text-4xl font-bold">{String(i + 1).padStart(2, '0')}</span>
-                  </div>
-                  <h3 className="mt-6 text-lg font-bold uppercase tracking-tight">{f.title}</h3>
-                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{f.body}</p>
-                  <ArrowUpRight className="mt-auto h-4 w-4 pt-0 text-primary opacity-0 transition-opacity group-hover:opacity-100" />
-                </div>
-              </Tilt>
-            </motion.div>
-          ))}
-        </div>
-      </section>
+      {/* ── System story (scroll-driven) ──────────────────── */}
+      <StoryScroll />
 
       {/* ── Interactive effort engine ──────────────────────── */}
-      <section id="effort" className="border-y-2 border-foreground bg-card">
+      <section id="effort" className="border-b-2 border-foreground bg-card">
         <div className="mx-auto grid max-w-7xl items-center gap-12 px-4 py-14 lg:grid-cols-2 lg:py-20">
-          <motion.div
-            variants={rise}
-            initial="hidden"
-            whileInView="show"
-            viewport={{ once: true, margin: '-80px' }}
-          >
+          <Reveal>
             <p className="mono-data text-[10px] tracking-[0.3em] text-primary">02 — EFFORT ENGINE</p>
             <h2 className="mt-3 text-4xl font-bold uppercase leading-none tracking-tight sm:text-5xl">
               Play with the{' '}
@@ -390,7 +301,7 @@ export default function Home() {
                 </div>
               ))}
             </div>
-          </motion.div>
+          </Reveal>
 
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
@@ -417,37 +328,24 @@ export default function Home() {
 
       {/* ── Protocol / steps ───────────────────────────────── */}
       <section id="protocol" className="mx-auto max-w-7xl px-4 py-14 lg:py-20">
-        <motion.div
-          variants={rise}
-          initial="hidden"
-          whileInView="show"
-          viewport={{ once: true, margin: '-80px' }}
-        >
+        <Reveal>
           <p className="mono-data text-[10px] tracking-[0.3em] text-primary">03 — PROTOCOL</p>
           <h2 className="mt-3 text-4xl font-bold uppercase leading-none tracking-tight sm:text-5xl">
             Three steps. <span className="font-serifit normal-case italic text-primary">Zero setup.</span>
           </h2>
-        </motion.div>
+        </Reveal>
 
         <div className="relative mt-14 grid gap-10 md:grid-cols-3">
           <div className="absolute left-0 right-0 top-7 hidden border-t-2 border-dashed border-foreground/30 md:block" />
           {STEPS.map((s, i) => (
-            <motion.div
-              key={s.title}
-              variants={rise}
-              initial="hidden"
-              whileInView="show"
-              viewport={{ once: true, margin: '-60px' }}
-              custom={i}
-              className="relative"
-            >
+            <Reveal key={s.title} i={i} className="relative">
               <div className="hard-shadow-sm relative z-10 flex h-14 w-14 items-center justify-center border-2 border-foreground bg-primary text-primary-foreground transition-transform duration-300 hover:rotate-6">
                 <s.icon className="h-6 w-6" />
               </div>
               <p className="text-outline mt-6 text-6xl font-bold leading-none">{String(i + 1).padStart(2, '0')}</p>
               <h3 className="mt-3 text-xl font-bold uppercase tracking-tight">{s.title}</h3>
               <p className="mt-2 max-w-xs text-sm leading-relaxed text-muted-foreground">{s.body}</p>
-            </motion.div>
+            </Reveal>
           ))}
         </div>
       </section>
